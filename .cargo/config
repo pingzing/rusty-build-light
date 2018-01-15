@@ -1,5 +1,5 @@
 [build]
 target = "arm-unknown-linux-gnueabihf"
 
-[target.arm-unknown-linux-gnueabihf]
-linker = "C:/Users/nmca/Downloads/gcc-linaro-5.5.0-2017.10-i686-mingw32_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-gcc.exe"
+#[target.arm-unknown-linux-gnueabihf]
+#linker = "C:/Users/nmca/Downloads/gcc-linaro-5.5.0-2017.10-i686-mingw32_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-gcc.exe"
