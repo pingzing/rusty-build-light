@@ -50,7 +50,9 @@ fn print_coin_values(currency_type: &str) {
             Ok(mut result) => {
                 let body = result.text().unwrap_or("".to_string());
                 if let Ok(result) = serde_json::from_str::<CoinbaseResponse>(body.as_str()) {
-                    println!("Got BTC response: Currency: {}, Amount: {}", result.data.currency, result.data.amount);
+                    println!("Got {} response: Currency: {}, Amount: {}", result.data.currency, 
+                                                                          result.data.currency, 
+                                                                          result.data.amount);
                 } 
                 else {
                     println!("Unable to deserialize the response to a CoinbaseResponse.");
