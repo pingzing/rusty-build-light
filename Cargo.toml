@@ -1,9 +1,12 @@
 [package]
-name = "test_latest"
+name = "rusty_build_light"
 version = "0.1.0"
 authors = ["pingzing <mcalistern@gmail.com>"]
+build = "build.rs"
 
 [dependencies]
+toml = "0.4"
+failure = "0.1.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
