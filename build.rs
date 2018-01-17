@@ -18,8 +18,11 @@ pub fn main() {
     config_file.push("config.toml");
 
     let dest_file = Path::new(exe_dir).join("config.toml");
+
+    println!("BUILD: Attempting to move {:?} to {:?}", config_file, dest_file);
+
     match fs::copy(&config_file, &dest_file){
         Ok(_) => println!("Copied config file successfully from {:?} to {:?}", config_file, dest_file),
-        Err(e) => println!("Failed to copy script from {:?} to {:?}: {:?}",config_file, dest_file, e)
+        Err(e) => println!("Failed to copy script from {:?} to {:?}: {:?}.", config_file, dest_file, e)
     }
 }

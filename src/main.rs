@@ -32,29 +32,39 @@ lazy_static!{
     static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();
 }
 
-fn main() {
-    let mut config_file = File::open("./config.toml").expect("No config.toml found in /src directory. Aborting...");
-    let mut config_text = String::new();
-    config_file.read_to_string(&mut config_text).expect("Failed to read config file");
+fn main() {    
+    match std::env::current_exe() {
+        Ok(path) => {
+            let mut config_file_path = std::path::PathBuf::from(path.parent().unwrap());
+            config_file_path.push("config.toml");
+            println!("Looking for config file at: {:?}", config_file_path);
+            let mut config_file = File::open(config_file_path).expect("No config.toml found in /src directory. Aborting...");
+            let mut config_text = String::new();
+            config_file.read_to_string(&mut config_text).expect("Failed to read config file");
 
-    let config_values: Config = toml::from_str(config_text.as_str()).expect("Failed to deserialize config file.");    
+            let config_values: Config = toml::from_str(config_text.as_str()).expect("Failed to deserialize config file.");    
 
-    let jenkins_handle = thread::spawn(move || {        
-        loop {
-            print_jenkins_status(config_values.jenkins_username.clone().as_str(), config_values.jenkins_password.clone().as_str());                        
-            thread::sleep(Duration::from_millis(SLEEP_DURATION));
+            let jenkins_handle = thread::spawn(move || {        
+                loop {
+                    print_jenkins_status(config_values.jenkins_username.clone().as_str(), config_values.jenkins_password.clone().as_str());                        
+                    thread::sleep(Duration::from_millis(SLEEP_DURATION));
+                }
+            });
+
+            let btc_handle = thread::spawn(|| {
+                loop {            
+                    //print_jenkins_status();
+                    //thread::sleep(Duration::from_millis(SLEEP_DURATION));
+                }        
+            });
+
+            jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
+            btc_handle.join().expect("Unable to join the BTC thread.");
         }
-    });
-
-    let btc_handle = thread::spawn(|| {
-        loop {            
-            //print_jenkins_status();
-            //thread::sleep(Duration::from_millis(SLEEP_DURATION));
-        }        
-    });
-
-    jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
-    btc_handle.join().expect("Unable to join the BTC thread.");
+        Err(e) => {
+            println!("Failed to obtain current executable directory. Exiting...");
+        }
+    }    
 }
 
 fn get_basic_credentials(username: &str, password: &str) -> Basic {
