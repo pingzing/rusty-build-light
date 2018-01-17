@@ -33,7 +33,7 @@ lazy_static!{
 }
 
 fn main() {
-    let mut config_file = File::open("./config.toml").expect("file not found");
+    let mut config_file = File::open("./config.toml").expect("No config.toml found in /src directory. Aborting...");
     let mut config_text = String::new();
     config_file.read_to_string(&mut config_text).expect("Failed to read config file");
 
