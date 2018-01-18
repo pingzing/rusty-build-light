@@ -60,6 +60,7 @@ fn main() {
             let btc_handle = thread::spawn(move || {
                 loop {            
                     print_unity_cloud_status(unity_api_token.as_str());
+                    // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }        
             });
