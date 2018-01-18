@@ -4,6 +4,7 @@ It's a build light for Raspberry Pi. In Rust!
 ## Requirements
 
 Rust. Mostly easily acquired via [rustup](https://www.rustup.rs/).
+
 (Cross-compilation) Docker with the [rust-crosscompiler-arm:stable Docker image](https://hub.docker.com/r/dlecan/rust-crosscompiler-arm/). Or you could get a working cross-compilation environment yourself, but good luck getting the `openssl-sys` crate to compile...
 
 ## Building
