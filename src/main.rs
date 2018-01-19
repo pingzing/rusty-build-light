@@ -7,6 +7,9 @@ use jenkins_response::*;
 mod unity_cloud_response;
 use unity_cloud_response::*;
 
+mod team_city_response;
+use team_city_response::*;
+
 #[macro_use]
 extern crate serde_derive;
 
@@ -26,7 +29,8 @@ use std::io::prelude::*;
 use std::time::Duration;
 use std::thread;
 use reqwest::{Client, Url, StatusCode};
-use reqwest::header::{Authorization, Basic, ContentType, Header, Headers};
+use reqwest::header::{Accept, Authorization, Basic, ContentType, Headers, qitem};
+use reqwest::mime;
 use failure::Error;
 
 const SLEEP_DURATION: u64 = 5000;
@@ -49,6 +53,8 @@ fn main() {
             let jenkins_username = config_values.jenkins_username;
             let jenkins_password = config_values.jenkins_password;
             let unity_api_token = config_values.unity_cloud_api_token;
+            let team_city_username = config_values.team_city_username;
+            let team_city_password = config_values.team_city_password;
 
             let jenkins_handle = thread::spawn(move || {        
                 loop {
@@ -57,7 +63,7 @@ fn main() {
                 }
             });
 
-            let btc_handle = thread::spawn(move || {
+            let unity_cloud_handle = thread::spawn(move || {
                 loop {            
                     print_unity_cloud_status(unity_api_token.as_str());
                     // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
@@ -65,8 +71,16 @@ fn main() {
                 }        
             });
 
+            let team_city_handle = thread::spawn(move || {
+                loop {
+                    print_team_city_status(team_city_username.as_str(), team_city_password.as_str());
+                    thread::sleep(Duration::from_millis(SLEEP_DURATION));
+                }
+            });
+
             jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
-            btc_handle.join().expect("Unable to join the Unity Cloud build status thread.");
+            unity_cloud_handle.join().expect("Unable to join the Unity Cloud build status thread.");
+            team_city_handle.join().expect("Unable to join Team City build status thread.");
         }
         Err(e) => {
             println!("Failed to obtain current executable directory. Details: {}. Exiting...", e);
@@ -104,7 +118,6 @@ fn get_url_reponse<T>(url_string: &str, headers: Headers) -> Result<T, Error>
         Err(format_err!("Unable to parse url: {}", url_string))
     }
 }
-
 
 fn print_jenkins_status(username: &str, password: &str) {        
     let url_string = "http://52.58.239.149:8080/api/json";
@@ -188,6 +201,27 @@ fn get_unity_android_status(headers: &Headers) -> UnityBuildStatus {
         Err(android_http_err) => {
             println!("Failure getting Unity Cloud build Android status: {}", android_http_err);
             return UnityBuildStatus::Unknown;
+        }
+    }
+}
+
+fn print_team_city_status(username: &str, password: &str) {
+    let url = "http://52.58.239.149:100/app/rest/builds/count:1";
+
+    let mut headers = Headers::new();
+    let auth_header = get_basic_credentials(username, Some(password.to_string()));
+    // todo: check to see if we have a TCSESSION cookie, and use it instead of auth
+    headers.set(Authorization(auth_header));
+    headers.set(Accept(vec![qitem(mime::APPLICATION_JSON)]));
+
+    let team_city_response: Result<TeamCityResponse, Error> = get_url_reponse(url, headers);
+    match team_city_response {
+        Ok(result) => {
+            // TODO: Get and return cookie for faster auth in the future
+            println!("Team City build status: {:?}", result.status);
+        }
+        Err(team_city_network_err) => {
+            println!("Failure getting Team City build status: {}", team_city_network_err);
         }
     }
 }
