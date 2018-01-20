@@ -1,3 +1,4 @@
 config.toml
+/log/
 /target/
 **/*.rs.bk
