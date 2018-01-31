@@ -40,3 +40,9 @@ ENV OPENSSL_DIR=$INSTALL_DIR
 
 # Clean up intermediate directories
 RUN rm OpenSSL_1_1_0g.tar.gz && rm /src -rf
+
+# Directory where the user should mount their source code's folder
+VOLUME ["/source"]
+WORKDIR /source
+
+CMD ["cargo" "build" "--release" "--target" "arm-unknown-linux-gnueabihf"]
