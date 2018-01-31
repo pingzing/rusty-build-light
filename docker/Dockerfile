@@ -45,4 +45,4 @@ RUN rm OpenSSL_1_1_0g.tar.gz && rm /src -rf
 VOLUME ["/source"]
 WORKDIR /source
 
-CMD ["cargo" "build" "--release" "--target" "arm-unknown-linux-gnueabihf"]
+CMD ["cargo", "build", "--release", "--target", "arm-unknown-linux-gnueabihf"]
