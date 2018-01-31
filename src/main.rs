@@ -19,6 +19,10 @@ extern crate lazy_static;
 #[macro_use]
 extern crate failure;
 
+#[macro_use]
+extern crate log;
+extern crate log4rs;
+
 extern crate serde;
 extern crate serde_json;
 extern crate reqwest;
@@ -39,17 +43,36 @@ lazy_static!{
     static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();
 }
 
-fn main() {    
+fn main() {            
     match std::env::current_exe() {
         Ok(path) => {
+            // Init logging
+            let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());
+            log_config_file_path.push("log4rs.yml");
+            println!("Looking for log config file at: {:?}", log_config_file_path);            
+            log4rs::init_file(log_config_file_path, Default::default()).unwrap();            
+
+            // Init config file
             let mut config_file_path = std::path::PathBuf::from(path.parent().unwrap());
             config_file_path.push("config.toml");
-            println!("Looking for config file at: {:?}", config_file_path);
-            let mut config_file = File::open(config_file_path).expect("No config.toml found in /src directory. Aborting...");
+            info!("Looking for config file at: {:?}", config_file_path);
+            let mut config_file = File::open(config_file_path)
+                .unwrap_or_else(|err| {
+                    error!("No config.toml found in /src directory. Error: {}", err);
+                    panic!("Aborting...");
+                });
             let mut config_text = String::new();
-            config_file.read_to_string(&mut config_text).expect("Failed to read config file");
+            config_file.read_to_string(&mut config_text)
+                .unwrap_or_else(|err| {
+                    error!("Failed to read config file. Error: {}", err);
+                    panic!("Aborting...");
+                });
 
-            let config_values: Config = toml::from_str(config_text.as_str()).expect("Failed to deserialize config file.");
+            let config_values: Config = toml::from_str(config_text.as_str())
+                .unwrap_or_else(|err|{
+                    error!("Failed to deserialize config file. Error: {}", err);
+                    panic!("Aborting...");
+                });
             let jenkins_username = config_values.jenkins_username;
             let jenkins_password = config_values.jenkins_password;
             let unity_api_token = config_values.unity_cloud_api_token;
@@ -83,7 +106,7 @@ fn main() {
             team_city_handle.join().expect("Unable to join Team City build status thread.");
         }
         Err(e) => {
-            println!("Failed to obtain current executable directory. Details: {}. Exiting...", e);
+            error!("Failed to obtain current executable directory. Details: {}. Exiting...", e);
         }
     }    
 }
@@ -134,16 +157,16 @@ fn print_jenkins_status(username: &str, password: &str) {
 
                 match job_response {
                     Ok(job_result) => {                           
-                            println!("Job {} result: {}", job.name, job_result.build_result);
+                            info!("Job {} result: {}", job.name, job_result.build_result);
                     }                        
                     Err(job_err) => {
-                        println!("HTTP failure when attempting to get job result for job: {}. Error: {}", &job_url_string, job_err);
+                        warn!("HTTP failure when attempting to get job result for job: {}. Error: {}", &job_url_string, job_err);
                     }
                 }
             }
         }
         Err(err) => {
-            println!("Error getting all jobs: {}", err);
+            warn!("Error getting all jobs: {}", err);
         }
     }    
 }
@@ -158,10 +181,10 @@ fn print_unity_cloud_status(api_token: &str) {
     let android_build_response = get_unity_android_status(&headers);
     if ios_build_status == UnityBuildStatus::Success 
         && android_build_response == UnityBuildStatus::Success {
-            println!("Unity Cloud Build: SUCCESS")
+            info!("Unity Cloud Build: SUCCESS")
     }
     else {
-        println!("Unity Cloud Build: FAILING");
+        info!("Unity Cloud Build: FAILING");
     }
 }
 
@@ -174,12 +197,12 @@ fn get_unity_ios_status(headers: &Headers) -> UnityBuildStatus {
                 return ios_http_result.remove(0).build_status;
             }
             else {
-                println!("No iOS builds retrieved from Unity Cloud. Aborting...");
+                warn!("No iOS builds retrieved from Unity Cloud. Aborting...");
                 return UnityBuildStatus::Unknown;
             }
         },
         Err(ios_http_err) => {
-            println!("Failure getting Unity Cloud build iOS status: {}", ios_http_err);
+            warn!("Failure getting Unity Cloud build iOS status: {}", ios_http_err);
             return UnityBuildStatus::Unknown;
         }
     }
@@ -194,12 +217,12 @@ fn get_unity_android_status(headers: &Headers) -> UnityBuildStatus {
                 return android_http_result.remove(0).build_status;
             }
             else { 
-                println!("No Android builds retrieved from Unity Cloud. Aborting...");
+                warn!("No Android builds retrieved from Unity Cloud. Aborting...");
                 return UnityBuildStatus::Unknown;
             }
         }
         Err(android_http_err) => {
-            println!("Failure getting Unity Cloud build Android status: {}", android_http_err);
+            warn!("Failure getting Unity Cloud build Android status: {}", android_http_err);
             return UnityBuildStatus::Unknown;
         }
     }
@@ -218,10 +241,10 @@ fn print_team_city_status(username: &str, password: &str) {
     match team_city_response {
         Ok(result) => {
             // TODO: Get and return cookie for faster auth in the future
-            println!("Team City build status: {:?}", result.status);
+            info!("Team City build status: {:?}", result.status);
         }
         Err(team_city_network_err) => {
-            println!("Failure getting Team City build status: {}", team_city_network_err);
+            warn!("Failure getting Team City build status: {}", team_city_network_err);
         }
     }
 }
