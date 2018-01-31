@@ -79,6 +79,7 @@ fn main() {
             let team_city_username = config_values.team_city_username;
             let team_city_password = config_values.team_city_password;
 
+            // Init threads that check build statuses
             let jenkins_handle = thread::spawn(move || {        
                 loop {
                     print_jenkins_status(jenkins_username.as_str(), jenkins_password.as_str());                        
@@ -111,37 +112,6 @@ fn main() {
     }    
 }
 
-fn get_basic_credentials(username: &str, password: Option<String>) -> Basic {
-    Basic {
-        username: username.to_string(),
-        password: password
-    }
-}
-
-fn get_url_reponse<T>(url_string: &str, headers: Headers) -> Result<T, Error> 
-    where T: serde::de::DeserializeOwned {
-    if let Ok(url) = Url::parse(&url_string) {
-        let mut response = HTTP_CLIENT.get(url)
-            .headers(headers)
-            .send()?;
-
-        match response.status() {
-            StatusCode::Ok => {
-                let body_string = response.text()?;                
-                let deser = serde_json::from_str::<T>(body_string.as_str())?;
-                Ok(deser)
-            }
-            other_code => {
-                Err(format_err!("HTTP call to {} failed with code: {}", &url_string, other_code))
-            }
-        }
-    }
-
-    else {
-        Err(format_err!("Unable to parse url: {}", url_string))
-    }
-}
-
 fn print_jenkins_status(username: &str, password: &str) {        
     let url_string = "http://52.58.239.149:8080/api/json";
     let mut auth_headers = Headers::new();
@@ -169,6 +139,27 @@ fn print_jenkins_status(username: &str, password: &str) {
             warn!("Error getting all jobs: {}", err);
         }
     }    
+}
+
+fn print_team_city_status(username: &str, password: &str) {
+    let url = "http://52.58.239.149:100/app/rest/builds/count:1";
+
+    let mut headers = Headers::new();
+    let auth_header = get_basic_credentials(username, Some(password.to_string()));
+    // todo: check to see if we have a TCSESSION cookie, and use it instead of auth
+    headers.set(Authorization(auth_header));
+    headers.set(Accept(vec![qitem(mime::APPLICATION_JSON)]));
+
+    let team_city_response: Result<TeamCityResponse, Error> = get_url_reponse(url, headers);
+    match team_city_response {
+        Ok(result) => {
+            // TODO: Get and return cookie for faster auth in the future
+            info!("Team City build status: {:?}", result.status);
+        }
+        Err(team_city_network_err) => {
+            warn!("Failure getting Team City build status: {}", team_city_network_err);
+        }
+    }
 }
 
 fn print_unity_cloud_status(api_token: &str) {    
@@ -228,23 +219,33 @@ fn get_unity_android_status(headers: &Headers) -> UnityBuildStatus {
     }
 }
 
-fn print_team_city_status(username: &str, password: &str) {
-    let url = "http://52.58.239.149:100/app/rest/builds/count:1";
+fn get_basic_credentials(username: &str, password: Option<String>) -> Basic {
+    Basic {
+        username: username.to_string(),
+        password: password
+    }
+}
 
-    let mut headers = Headers::new();
-    let auth_header = get_basic_credentials(username, Some(password.to_string()));
-    // todo: check to see if we have a TCSESSION cookie, and use it instead of auth
-    headers.set(Authorization(auth_header));
-    headers.set(Accept(vec![qitem(mime::APPLICATION_JSON)]));
+fn get_url_reponse<T>(url_string: &str, headers: Headers) -> Result<T, Error> 
+    where T: serde::de::DeserializeOwned {
+    if let Ok(url) = Url::parse(&url_string) {
+        let mut response = HTTP_CLIENT.get(url)
+            .headers(headers)
+            .send()?;
 
-    let team_city_response: Result<TeamCityResponse, Error> = get_url_reponse(url, headers);
-    match team_city_response {
-        Ok(result) => {
-            // TODO: Get and return cookie for faster auth in the future
-            info!("Team City build status: {:?}", result.status);
+        match response.status() {
+            StatusCode::Ok => {
+                let body_string = response.text()?;                
+                let deser = serde_json::from_str::<T>(body_string.as_str())?;
+                Ok(deser)
+            }
+            other_code => {
+                Err(format_err!("HTTP call to {} failed with code: {}", &url_string, other_code))
+            }
         }
-        Err(team_city_network_err) => {
-            warn!("Failure getting Team City build status: {}", team_city_network_err);
-        }
+    }
+
+    else {
+        Err(format_err!("Unable to parse url: {}", url_string))
     }
 }
