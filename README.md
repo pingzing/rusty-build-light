@@ -38,7 +38,7 @@ Okay.
 
 First off, don't even try this on Windows. It's not worth the pain. WSL aka Bash On Windows works fine though.
 
-**Step one** is acquire a version of OpenSSL comaptible with v0.9.23 (or whatever we have in Cargo.lock) of the `openssl-sys` crate. As of this writing, [that's 1.1.0g](https://github.com/openssl/openssl/archive/OpenSSL_1_1_0g.tar.gz).
+**Step one** is acquire a version of OpenSSL comaptible with v0.9.23 (or whatever we have in Cargo.lock) of the `openssl` crate. As of this writing, [that's 1.1.0g](https://github.com/openssl/openssl/archive/OpenSSL_1_1_0g.tar.gz).
 
 ---
 
@@ -79,10 +79,10 @@ Explanation:
  
  `Make install` is what actually spits everything out into `~/src/arm-openssl-output`.
 
- And add an environment variable that points to that output, the `openssl-sys` crate will use it later:
+ And add an environment variable that points to that output, the `openssl` crate will use it later:
 
  ```bash
- $ export ARM_LINUX_UNKNOWN_GNUEABIHF=~/src/arm-openssl-output
+ $ export ARM_LINUX_UNKNOWN_GNUEABIHF_OPENSSL_DIR=~/src/arm-openssl-output
  ```
 
 ---

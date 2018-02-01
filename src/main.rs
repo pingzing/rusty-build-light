@@ -75,21 +75,26 @@ fn main() {
                 });
             let jenkins_username = config_values.jenkins_username;
             let jenkins_password = config_values.jenkins_password;
+            let jenkins_base_url = config_values.jenkins_base_url;
+
             let unity_api_token = config_values.unity_cloud_api_token;
+            let unity_base_url = config_values.unity_base_url;
+
             let team_city_username = config_values.team_city_username;
             let team_city_password = config_values.team_city_password;
+            let team_city_base_url = config_values.team_city_base_url;
 
             // Init threads that check build statuses
             let jenkins_handle = thread::spawn(move || {        
                 loop {
-                    print_jenkins_status(jenkins_username.as_str(), jenkins_password.as_str());                        
+                    print_jenkins_status(jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str());                        
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }
             });
 
             let unity_cloud_handle = thread::spawn(move || {
                 loop {            
-                    print_unity_cloud_status(unity_api_token.as_str());
+                    print_unity_cloud_status(unity_api_token.as_str(), unity_base_url.as_str());
                     // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }        
@@ -97,7 +102,7 @@ fn main() {
 
             let team_city_handle = thread::spawn(move || {
                 loop {
-                    print_team_city_status(team_city_username.as_str(), team_city_password.as_str());
+                    print_team_city_status(team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }
             });
@@ -112,21 +117,21 @@ fn main() {
     }    
 }
 
-fn print_jenkins_status(username: &str, password: &str) {        
-    let url_string = "http://52.58.239.149:8080/api/json";
+fn print_jenkins_status(username: &str, password: &str, base_url: &str) {        
+    let url_string = format!("{base}/api/json", base=base_url);
     let mut auth_headers = Headers::new();
     auth_headers.set(Authorization(get_basic_credentials(username, Some(password.to_string()))));
 
-    let all_jobs_response: Result<JenkinsJobResponse, Error> = get_url_reponse(&url_string, auth_headers.clone());   
+    let all_jobs_response: Result<(JenkinsJobResponse, Headers), Error> = get_url_response(&url_string, auth_headers.clone());   
 
     match all_jobs_response {
-        Ok(result) => {               
+        Ok((result, all_jobs_response_headers)) => {               
             for job in result.jobs {
-                let job_url_string = format!("http://52.58.239.149:8080/job/{}/lastBuild/api/json", job.name);
-                let job_response: Result<JenkinsBuildResult, Error> = get_url_reponse(&job_url_string, auth_headers.clone());
+                let job_url_string = format!("{base}/job/{job}/lastBuild/api/json", base=base_url, job=job.name);
+                let job_response: Result<(JenkinsBuildResult, Headers), Error> = get_url_response(&job_url_string, auth_headers.clone());
 
                 match job_response {
-                    Ok(job_result) => {                           
+                    Ok((job_result, single_job_reponse_headers)) => {                           
                             info!("Job {} result: {}", job.name, job_result.build_result);
                     }                        
                     Err(job_err) => {
@@ -141,8 +146,8 @@ fn print_jenkins_status(username: &str, password: &str) {
     }    
 }
 
-fn print_team_city_status(username: &str, password: &str) {
-    let url = "http://52.58.239.149:100/app/rest/builds/count:1";
+fn print_team_city_status(username: &str, password: &str, base_url: &str) {
+    let url = format!("{base}/app/rest/builds/count:1", base=base_url);
 
     let mut headers = Headers::new();
     let auth_header = get_basic_credentials(username, Some(password.to_string()));
@@ -150,9 +155,9 @@ fn print_team_city_status(username: &str, password: &str) {
     headers.set(Authorization(auth_header));
     headers.set(Accept(vec![qitem(mime::APPLICATION_JSON)]));
 
-    let team_city_response: Result<TeamCityResponse, Error> = get_url_reponse(url, headers);
+    let team_city_response: Result<(TeamCityResponse, Headers), Error> = get_url_response(url.as_str(), headers);
     match team_city_response {
-        Ok(result) => {
+        Ok((result, response_headers)) => {
             // TODO: Get and return cookie for faster auth in the future
             info!("Team City build status: {:?}", result.status);
         }
@@ -162,15 +167,18 @@ fn print_team_city_status(username: &str, password: &str) {
     }
 }
 
-fn print_unity_cloud_status(api_token: &str) {    
+fn print_unity_cloud_status(api_token: &str, base_url: &str) {    
     let mut headers = Headers::new();
     let auth_header = get_basic_credentials(api_token, None);    
     headers.set(Authorization(auth_header));
     headers.set(ContentType::json());
 
-    let ios_build_status = get_unity_ios_status(&headers);
-    let android_build_response = get_unity_android_status(&headers);
-    if ios_build_status == UnityBuildStatus::Success 
+    let ios_url = format!("{base}/buildtargets/ios-development/builds?per_page=1", base=base_url);    
+    let ios_build_response = get_unity_status(&headers, ios_url.as_str());
+
+    let android_url = format!("{base}/buildtargets/android-development/builds?per_page=1", base=base_url);
+    let android_build_response = get_unity_status(&headers, android_url.as_str());
+    if ios_build_response == UnityBuildStatus::Success 
         && android_build_response == UnityBuildStatus::Success {
             info!("Unity Cloud Build: SUCCESS")
     }
@@ -179,42 +187,21 @@ fn print_unity_cloud_status(api_token: &str) {
     }
 }
 
-fn get_unity_ios_status(headers: &Headers) -> UnityBuildStatus {
-    let ios_url_string = "https://build-api.cloud.unity3d.com/api/v1/orgs/futurice/projects/finavia-helsinki-airport/buildtargets/ios-development/builds?per_page=1";
-    let ios_build_response: Result<Vec<UnityBuild>, Error> = get_url_reponse(&ios_url_string, headers.clone());
-    match ios_build_response {
-        Ok(mut ios_http_result) => {
-            if ios_http_result.len() != 0 {
-                return ios_http_result.remove(0).build_status;
+fn get_unity_status(headers: &Headers, url: &str) -> UnityBuildStatus {    
+    let unity_build_response: Result<(Vec<UnityBuild>, Headers), Error> = get_url_response(&url, headers.clone());
+    match unity_build_response {
+        Ok((mut unity_http_result, response_headers)) => {
+            if unity_http_result.len() != 0 {
+                return unity_http_result.remove(0).build_status;
             }
             else {
-                warn!("No iOS builds retrieved from Unity Cloud. Aborting...");
-                return UnityBuildStatus::Unknown;
+                warn!("No builds retrieved from Unity Cloud for URL {}. Aborting...", url);
+                UnityBuildStatus::Unknown
             }
         },
-        Err(ios_http_err) => {
-            warn!("Failure getting Unity Cloud build iOS status: {}", ios_http_err);
-            return UnityBuildStatus::Unknown;
-        }
-    }
-}
-
-fn get_unity_android_status(headers: &Headers) -> UnityBuildStatus {
-    let android_url_string = "https://build-api.cloud.unity3d.com/api/v1/orgs/futurice/projects/finavia-helsinki-airport/buildtargets/android-development/builds?per_page=1";
-    let android_build_response: Result<Vec<UnityBuild>, Error> = get_url_reponse(&android_url_string, headers.clone());
-    match android_build_response {
-        Ok(mut android_http_result) => {
-            if android_http_result.len() != 0 {
-                return android_http_result.remove(0).build_status;
-            }
-            else { 
-                warn!("No Android builds retrieved from Unity Cloud. Aborting...");
-                return UnityBuildStatus::Unknown;
-            }
-        }
-        Err(android_http_err) => {
-            warn!("Failure getting Unity Cloud build Android status: {}", android_http_err);
-            return UnityBuildStatus::Unknown;
+        Err(unity_http_err) => {
+            warn!("Failure getting Unity Cloud build status for url: {}. Error: {}", url, unity_http_err);
+            UnityBuildStatus::Unknown
         }
     }
 }
@@ -226,7 +213,7 @@ fn get_basic_credentials(username: &str, password: Option<String>) -> Basic {
     }
 }
 
-fn get_url_reponse<T>(url_string: &str, headers: Headers) -> Result<T, Error> 
+fn get_url_response<T>(url_string: &str, headers: Headers) -> Result<(T, Headers), Error> 
     where T: serde::de::DeserializeOwned {
     if let Ok(url) = Url::parse(&url_string) {
         let mut response = HTTP_CLIENT.get(url)
@@ -237,7 +224,8 @@ fn get_url_reponse<T>(url_string: &str, headers: Headers) -> Result<T, Error>
             StatusCode::Ok => {
                 let body_string = response.text()?;                
                 let deser = serde_json::from_str::<T>(body_string.as_str())?;
-                Ok(deser)
+                //todo: Do we have to clone this?
+                Ok((deser, response.headers().clone()))
             }
             other_code => {
                 Err(format_err!("HTTP call to {} failed with code: {}", &url_string, other_code))
