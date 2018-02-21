@@ -1,19 +1,3 @@
-// let pin_4 = Pin::new(4);            
-
-//             let test_led_thread = thread::spawn(move || {
-//                 pin_4.with_exported(|| {                        
-//                     pin_4.set_direction(Direction::Low); // turns pin off
-//                     loop {
-//                         info!("Turning pin 4 off.");
-//                         pin_4.set_value(0);
-//                         thread::sleep(Duration::from_millis(750));
-//                         info!("Turning pin 4 on.");
-//                         pin_4.set_value(1);
-//                         thread::sleep(Duration::from_millis(750));
-//                     }
-//                     Ok(())
-//                 });                
-//             });                
 use sysfs_gpio::{Direction, Pin, Error};
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;

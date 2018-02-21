@@ -30,6 +30,7 @@ extern crate serde_json;
 extern crate reqwest;
 extern crate toml;
 extern crate sysfs_gpio;
+extern crate wiringpi;
 
 use sysfs_gpio::{Direction, Pin};
 use std::fs::File;
