@@ -82,7 +82,7 @@ Explanation:
  And add an environment variable that points to that output, the `openssl` crate will use it later:
 
  ```bash
- $ export ARM_LINUX_UNKNOWN_GNUEABIHF_OPENSSL_DIR=~/src/arm-openssl-output
+ $ export ARM_UNKNOWN_LINUX_GNUEABIHF_OPENSSL_DIR=~/src/arm-openssl-output
  ```
 
 ---
@@ -93,7 +93,7 @@ Explanation:
  $ curl https://sh.rustup.rs -sSf | sh
  ```
 
- ...and add the `arm-linux-unknown-gnueabihf` target:
+ ...and add the `arm-unknown-linux-gnueabihf` target:
 
  ```bash
  $ rustup target add arm-unknown-linux-gnueabihf

@@ -10,6 +10,8 @@ use unity_cloud_response::*;
 mod team_city_response;
 use team_city_response::*;
 
+mod pin;
+
 #[macro_use]
 extern crate serde_derive;
 
@@ -27,7 +29,9 @@ extern crate serde;
 extern crate serde_json;
 extern crate reqwest;
 extern crate toml;
+extern crate sysfs_gpio;
 
+use sysfs_gpio::{Direction, Pin};
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;
@@ -40,10 +44,10 @@ use failure::Error;
 const SLEEP_DURATION: u64 = 5000;
 
 lazy_static!{
-    static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();
+    static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();    
 }
 
-fn main() {            
+fn main() {
     match std::env::current_exe() {
         Ok(path) => {
             // Init logging
@@ -82,7 +86,7 @@ fn main() {
 
             let team_city_username = config_values.team_city_username;
             let team_city_password = config_values.team_city_password;
-            let team_city_base_url = config_values.team_city_base_url;
+            let team_city_base_url = config_values.team_city_base_url;            
 
             // Init threads that check build statuses
             let jenkins_handle = thread::spawn(move || {        
@@ -106,7 +110,7 @@ fn main() {
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }
             });
-
+            
             jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
             unity_cloud_handle.join().expect("Unable to join the Unity Cloud build status thread.");
             team_city_handle.join().expect("Unable to join Team City build status thread.");
