@@ -58,14 +58,14 @@ First off, don't even try this on Windows. It's not worth the pain. WSL aka Bash
 
  ```bash
  $ cd ~/src/openssl-src
- $ ./Configure linux-generic32 shared --prefix=~/src/arm-openssl-output --openssldir=~/src/arm-openssl-output/openssl --cross-compile-prefix=/user/bin/arm-linux-gnueabihf-      
+ $ ./Configure linux-generic32 shared --prefix=/home/<your-username>/src/arm-openssl-output --openssldir=~/src/arm-openssl-output/openssl --cross-compile-prefix=/user/bin/arm-linux-gnueabihf-      
  ```
 
 Explanation:
 
  * `linux-generic32`: Compiles for a 32-bit system, as the RPi is one.
  * `shared`: Creates a static (.a) and shared (.so) library.
- * `--prefix=<path to precompiled-openssl-arm folder>`: This is where the ultimate, compiled lib will be placed once compilation completes.
+ * `--prefix=<absolute path to precompiled-openssl-arm folder>`: This is where the ultimate, compiled lib will be placed once compilation completes.
  * `--openssldir=<precompiled-openssl-arm folder>/openssl`: Contains config files for the built library.
  * `--cross-compile-prefix=/usr/bin/arm-linux-gnueabihf-`: NOTE THE TRAILING DASH. This tells OpenSSL where to find the cross-compiler. By default, this is where `gcc-arm-linux-gnueabihf` gets installed to, but if you put it somewhere else, give it that path instead.
 
@@ -103,4 +103,22 @@ Explanation:
 
  **Step six** Configure cargo
 
-blehhh todo later
+This repository includes it by default, but I'm noting it here for posterity:
+
+ * In the project root, create a folder called `.cargo`.
+ * In this folder, create file named `config`. Place the following inside config:
+
+ ```toml
+ [target.arm-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+ ```
+
+ * This tells Cargo to use the ARM linker if it needs to use a linker for C code. 
+
+ **Step seven** Actually Building The Project
+
+ Now, we should finally be able to build:
+
+ ```bash
+ cargo build --target=arm-unknown-linux-gnueabihf
+ ```
