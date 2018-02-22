@@ -31,6 +31,7 @@ extern crate reqwest;
 extern crate toml;
 extern crate sysfs_gpio;
 
+use std::sync::mpsc::{Sender};
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;
@@ -39,6 +40,7 @@ use reqwest::{Client, Url, StatusCode};
 use reqwest::header::{Accept, Authorization, Basic, ContentType, Headers, qitem};
 use reqwest::mime;
 use failure::Error;
+use sysfs_gpio::{Direction, Pin};
 
 const SLEEP_DURATION: u64 = 5000;
 
@@ -87,18 +89,11 @@ fn main() {
             let team_city_password = config_values.team_city_password;
             let team_city_base_url = config_values.team_city_base_url;  
 
-            let led_test_thread = thread::spawn(move || {
-                loop {
-                    let pin_numbers = vec!(2, 3, 4);
-                    info!("Turning pins 2 3 and 4 on!");
-                    pin::turn_led_on(&pin_numbers);
-                    thread::sleep(Duration::from_millis(2000));
-                                        
-                    info!("Turning pins 2 3 and 4 off!");
-                    pin::turn_led_off(&pin_numbers);
-                    thread::sleep(Duration::from_millis(2000));
-                }
-            });
+           let stop_blink_transmitter = pin::blink_led(pin::get_led_1());
+
+           thread::sleep(Duration::from_millis(5000));
+
+           stop_blink_transmitter.send(true);
 
             // Init threads that check build statuses
             let jenkins_handle = thread::spawn(move || {        
@@ -117,13 +112,45 @@ fn main() {
             });
 
             let team_city_handle = thread::spawn(move || {
+                let mut team_city_blink_transmitter: Option<Sender<bool>> = None;
                 loop {
-                    print_team_city_status(team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());
+                    let team_city_status = get_team_city_status(team_city_username.as_str(), 
+                                                                team_city_password.as_str(), 
+                                                                team_city_base_url.as_str());
+
+                    match team_city_status {
+                        Some(status) => {
+                            match status {
+                                Success => {
+                                    if let Some(tx) = team_city_blink_transmitter {
+                                        tx.send(true);  
+                                        team_city_blink_transmitter = None;
+                                    }
+                                    pin::set_led_rgb_values(pin::get_led_1(), 0, 1, 0);
+                                }
+                                Failure => team_city_blink_transmitter = Some(pin::blink_led(pin::get_led_1())),
+                                Error => {
+                                    if let Some(tx) = team_city_blink_transmitter {
+                                        tx.send(true);  
+                                        team_city_blink_transmitter = None;
+                                    }
+                                    pin::set_led_rgb_values(pin::get_led_1(), 1, 1, 0);
+                                }
+                            }
+                        },
+                        None => {
+                            if let Some(tx) = team_city_blink_transmitter {
+                                tx.send(true);
+                                team_city_blink_transmitter = None;
+                            }
+                            pin::set_led_rgb_values(pin::get_led_1(), 1, 1, 0);
+                        }
+                    }
+
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }
             });
-            
-            led_test_thread.join().expect("Unable to join the LED test thread.");
+                        
             jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
             unity_cloud_handle.join().expect("Unable to join the Unity Cloud build status thread.");
             team_city_handle.join().expect("Unable to join Team City build status thread.");
@@ -163,7 +190,7 @@ fn print_jenkins_status(username: &str, password: &str, base_url: &str) {
     }    
 }
 
-fn print_team_city_status(username: &str, password: &str, base_url: &str) {
+fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Option<TeamCityBuildStatus> {
     let url = format!("{base}/app/rest/builds/count:1", base=base_url);
 
     let mut headers = Headers::new();
@@ -177,9 +204,11 @@ fn print_team_city_status(username: &str, password: &str, base_url: &str) {
         Ok((result, response_headers)) => {
             // TODO: Get and return cookie for faster auth in the future
             info!("Team City build status: {:?}", result.status);
+            Some(result.status)
         }
         Err(team_city_network_err) => {
             warn!("Failure getting Team City build status: {}", team_city_network_err);
+            None
         }
     }
 }
