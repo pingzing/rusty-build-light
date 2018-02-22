@@ -29,7 +29,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate reqwest;
 extern crate toml;
-extern crate wiringpi;
+extern crate sysfs_gpio;
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -85,7 +85,20 @@ fn main() {
 
             let team_city_username = config_values.team_city_username;
             let team_city_password = config_values.team_city_password;
-            let team_city_base_url = config_values.team_city_base_url;            
+            let team_city_base_url = config_values.team_city_base_url;  
+
+            let led_test_thread = thread::spawn(move || {
+                loop {
+                    let pin_numbers = vec!(2, 3, 4);
+                    info!("Turning pins 2 3 and 4 on!");
+                    pin::turn_led_on(&pin_numbers);
+                    thread::sleep(Duration::from_millis(2000));
+                                        
+                    info!("Turning pins 2 3 and 4 off!");
+                    pin::turn_led_off(&pin_numbers);
+                    thread::sleep(Duration::from_millis(2000));
+                }
+            });
 
             // Init threads that check build statuses
             let jenkins_handle = thread::spawn(move || {        
@@ -110,6 +123,7 @@ fn main() {
                 }
             });
             
+            led_test_thread.join().expect("Unable to join the LED test thread.");
             jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
             unity_cloud_handle.join().expect("Unable to join the Unity Cloud build status thread.");
             team_city_handle.join().expect("Unable to join Team City build status thread.");
