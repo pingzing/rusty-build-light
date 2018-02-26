@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::fs;
 
-// Copy the config file and log config file from /src to the output directory, next to our resulting executable
+// Copy the config file and log config file from /config to the output directory, next to our resulting executable
 pub fn main() {
     let cargo_manifest_dir = env::var_os("CARGO_MANIFEST_DIR")
         .unwrap_or_else(|| {
@@ -19,7 +19,7 @@ pub fn main() {
     
     let mut config_file = PathBuf::new();
     config_file.push(&cargo_manifest_dir);
-    config_file.push("src");
+    config_file.push("config");
     config_file.push("config.toml");    
 
     let dest_file = Path::new(exe_dir).join("config.toml");
@@ -33,7 +33,7 @@ pub fn main() {
 
     let mut log_config_file = PathBuf::new();
     log_config_file.push(&cargo_manifest_dir);
-    log_config_file.push("src");
+    log_config_file.push("config");
     log_config_file.push("log4rs.yml");
 
     let log_dest_file = Path::new(exe_dir).join("log4rs.yml");

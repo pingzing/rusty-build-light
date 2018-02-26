@@ -13,6 +13,9 @@ use team_city_response::*;
 mod pin;
 use pin::RgbLedLight;
 
+mod errors;
+use errors::UnityBuildError;
+
 #[macro_use]
 extern crate serde_derive;
 
@@ -89,88 +92,25 @@ fn main() {
             let team_city_base_url = config_values.team_city_base_url;
 
             // Init various check-status loops
-            let jenkins_handle = thread::spawn(move || {   
-                let mut jenkins_led = pin::RgbLedLight::new(17, 27, 22);
-                run_power_on_test(&mut jenkins_led);
-                loop {
-                    if let Ok(results) = print_jenkins_status(
-                        jenkins_username.as_str(),
-                        jenkins_password.as_str(),
-                        jenkins_base_url.as_str()) 
-                    {
-                        let (retrieved, not_retrieved): (
-                            Vec<Result<JenkinsBuildStatus, Error>>,
-                            Vec<Result<JenkinsBuildStatus, Error>>,
-                        ) = results.into_iter().partition(|x| x.is_ok());
-
-                        let retrieved_count = retrieved.len();
-                        let not_retrieved_count = not_retrieved.len();
-                        let build_failures = *(&retrieved.iter().filter(|x| x.is_err()).count());
-                        let build_successes = *(&retrieved.iter().filter(|x| x.is_ok()).count());
-
-                        // Failure states: NONE of the builds succeeded.
-                        if build_successes <= 0 {
-                            if not_retrieved_count > build_failures || build_failures == 0 {
-                                // Glow blue if we fail to retrieve the majority, or if we have no success AND no failures
-                                jenkins_led.glow_led(RgbLedLight::BLUE);
-                            }
-                            else {
-                                jenkins_led.blink_led(RgbLedLight::RED);
-                            }
-                        }
-
-                        // Success, or partial success states: at least SOME builds succeeded.
-                        else {
-                            if build_failures == 0 {
-                                jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
-                            }
-                            else if build_successes > build_failures {
-                                jenkins_led.set_led_rgb_values(RgbLedLight::YELLOW);
-                            }
-                            else {
-                                jenkins_led.blink_led(RgbLedLight::RED);
-                            }
-                        }
-
-                        info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
-                    } else { // Network failure, we got _nothing_ back.
-                        jenkins_led.glow_led(RgbLedLight::BLUE);
-                        warn!("--Jenkins--: Failed to retrieve any jobs from Jenkins.");
-                    }                                                           
-                    thread::sleep(Duration::from_millis(SLEEP_DURATION));
-                }
+            let jenkins_handle = thread::spawn(move || {
+                run_jenkins_loop(jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str())
             });
 
             let unity_cloud_handle = thread::spawn(move || {
                 loop {            
-                    print_unity_cloud_status(unity_api_token.as_str(), unity_base_url.as_str());
+                    let unity_results = get_unity_cloud_status(unity_api_token.as_str(), unity_base_url.as_str());
+                    let (successes, failures): (
+                        Vec<Result<(UnityBuildStatus, Headers), UnityBuildError>>,
+                        Vec<Result<(UnityBuildStatus, Headers), UnityBuildError>>,
+                    ) = unity_results.into_iter().partition(|x| x.is_ok());
+
                     // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }        
             });
 
             let team_city_handle = thread::spawn(move || {
-                let mut team_city_led = pin::RgbLedLight::new(2, 3, 4);
-                run_power_on_test(&mut team_city_led);
-                loop {
-                    let team_city_status = get_team_city_status(team_city_username.as_str(), 
-                                                                team_city_password.as_str(), 
-                                                                team_city_base_url.as_str());
-                    match team_city_status {
-                        Some(status) => {
-                            match status {
-                                TeamCityBuildStatus::Success => team_city_led.set_led_rgb_values(RgbLedLight::GREEN),
-                                TeamCityBuildStatus::Failure => team_city_led.blink_led(RgbLedLight::RED),
-                                TeamCityBuildStatus::Error => team_city_led.set_led_rgb_values(RgbLedLight::BLUE)
-                            }
-                        }
-                        None => {
-                            team_city_led.set_led_rgb_values(RgbLedLight::BLUE);
-                        }
-                    }
-
-                    thread::sleep(Duration::from_millis(SLEEP_DURATION));
-                }
+                run_team_city_loop(team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());
             });
                         
             jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
@@ -199,7 +139,62 @@ fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
     test_led.glow_led(RgbLedLight::TEAL);    
 }
 
-fn print_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {        
+fn run_jenkins_loop(jenkins_username: &str, jenkins_password: &str, jenkins_base_url: &str) { 
+    let mut jenkins_led = pin::RgbLedLight::new(17, 27, 22);
+    run_power_on_test(&mut jenkins_led);
+    loop {
+        match get_jenkins_status(
+            jenkins_username,
+            jenkins_password,
+            jenkins_base_url) 
+        {
+            Ok(results) => {
+                let (retrieved, not_retrieved): (
+                    Vec<Result<JenkinsBuildStatus, Error>>,
+                    Vec<Result<JenkinsBuildStatus, Error>>,
+                ) = results.into_iter().partition(|x| x.is_ok());
+
+                let retrieved_count = retrieved.len();
+                let not_retrieved_count = not_retrieved.len();
+                let build_failures = *(&retrieved.iter().filter(|x| x.is_err()).count());
+                let build_successes = *(&retrieved.iter().filter(|x| x.is_ok()).count());
+
+                // Failure states: NONE of the builds succeeded.
+                if build_successes <= 0 {
+                    if not_retrieved_count > build_failures || build_failures == 0 {
+                        // Glow blue if we fail to retrieve the majority, or if we have no success AND no failures
+                        jenkins_led.glow_led(RgbLedLight::BLUE);
+                    }
+                    else {
+                        jenkins_led.blink_led(RgbLedLight::RED);
+                    }
+                }
+
+                // Success, or partial success states: at least SOME builds succeeded.
+                else {
+                    if build_failures == 0 {
+                        jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
+                    }
+                    else if build_successes > build_failures {
+                        jenkins_led.set_led_rgb_values(RgbLedLight::YELLOW);
+                    }
+                    else {
+                        jenkins_led.blink_led(RgbLedLight::RED);
+                    }
+                }
+
+                info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
+            },
+            Err(e) => {
+                    jenkins_led.glow_led(RgbLedLight::BLUE);
+                warn!("--Jenkins--: Failed to retrieve any jobs from Jenkins. Details: {}", e);
+            }
+        }                      
+        thread::sleep(Duration::from_millis(SLEEP_DURATION));
+    }
+}
+
+fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {        
     let url_string = format!("{base}/api/json", base=base_url);
     let mut auth_headers = Headers::new();
     auth_headers.set(Authorization(get_basic_credentials(username, Some(password.to_string()))));
@@ -231,6 +226,30 @@ fn print_jenkins_status(username: &str, password: &str, base_url: &str) -> Resul
     }
 }
 
+fn run_team_city_loop(team_city_username: &str, team_city_password: &str, team_city_base_url: &str) {
+    let mut team_city_led = pin::RgbLedLight::new(2, 3, 4);
+    run_power_on_test(&mut team_city_led);
+    loop {
+        let team_city_status = get_team_city_status(team_city_username, 
+                                                    team_city_password, 
+                                                    team_city_base_url);
+        match team_city_status {
+            Some(status) => {
+                match status {
+                    TeamCityBuildStatus::Success => team_city_led.set_led_rgb_values(RgbLedLight::GREEN),
+                    TeamCityBuildStatus::Failure => team_city_led.blink_led(RgbLedLight::RED),
+                    TeamCityBuildStatus::Error => team_city_led.set_led_rgb_values(RgbLedLight::BLUE)
+                }
+            }
+            None => {
+                team_city_led.set_led_rgb_values(RgbLedLight::BLUE);
+            }
+        }
+
+        thread::sleep(Duration::from_millis(SLEEP_DURATION));
+    }
+}
+
 fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Option<TeamCityBuildStatus> {
     let url = format!("{base}/app/rest/builds/count:1", base=base_url);
 
@@ -254,7 +273,7 @@ fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Optio
     }
 }
 
-fn print_unity_cloud_status(api_token: &str, base_url: &str) {    
+fn get_unity_cloud_status(api_token: &str, base_url: &str) -> Vec<Result<(UnityBuildStatus, Headers), UnityBuildError>> {    
     let mut headers = Headers::new();
     let auth_header = get_basic_credentials(api_token, None);    
     headers.set(Authorization(auth_header));
@@ -265,30 +284,24 @@ fn print_unity_cloud_status(api_token: &str, base_url: &str) {
 
     let android_url = format!("{base}/buildtargets/android-development/builds?per_page=1", base=base_url);
     let android_build_response = get_unity_status(&headers, android_url.as_str());
-    if ios_build_response == UnityBuildStatus::Success 
-        && android_build_response == UnityBuildStatus::Success {
-            info!("Unity Cloud Build: SUCCESS")
-    }
-    else {
-        info!("Unity Cloud Build: FAILING");
-    }
+    vec!(ios_build_response, android_build_response)
 }
 
-fn get_unity_status(headers: &Headers, url: &str) -> UnityBuildStatus {    
+fn get_unity_status(headers: &Headers, url: &str) -> Result<(UnityBuildStatus, Headers), UnityBuildError> {    
     let unity_build_response: Result<(Vec<UnityBuild>, Headers), Error> = get_url_response(&url, headers.clone());
     match unity_build_response {
         Ok((mut unity_http_result, response_headers)) => {
             if unity_http_result.len() != 0 {
-                return unity_http_result.remove(0).build_status;
+                Ok((unity_http_result.remove(0).build_status, response_headers))
             }
             else {
                 warn!("No builds retrieved from Unity Cloud for URL {}. Aborting...", url);
-                UnityBuildStatus::Unknown
+                Err(UnityBuildError::NoBuildsReturned)
             }
         },
         Err(unity_http_err) => {
             warn!("Failure getting Unity Cloud build status for url: {}. Error: {}", url, unity_http_err);
-            UnityBuildStatus::Unknown
+            Err(UnityBuildError::HttpError{ http_error_message: unity_http_err.to_string() })
         }
     }
 }
