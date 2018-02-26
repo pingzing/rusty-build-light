@@ -11,6 +11,7 @@ mod team_city_response;
 use team_city_response::*;
 
 mod pin;
+use pin::RgbLedLight;
 
 #[macro_use]
 extern crate serde_derive;
@@ -29,9 +30,8 @@ extern crate serde;
 extern crate serde_json;
 extern crate reqwest;
 extern crate toml;
-extern crate sysfs_gpio;
+extern crate wiringpi;
 
-use std::sync::mpsc::{Sender};
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;
@@ -40,7 +40,6 @@ use reqwest::{Client, Url, StatusCode};
 use reqwest::header::{Accept, Authorization, Basic, ContentType, Headers, qitem};
 use reqwest::mime;
 use failure::Error;
-use sysfs_gpio::{Direction, Pin};
 
 const SLEEP_DURATION: u64 = 5000;
 
@@ -49,9 +48,9 @@ lazy_static!{
 }
 
 fn main() {
-    match std::env::current_exe() {
-        Ok(path) => {
-            // Init logging
+    match std::env::current_exe() {        
+        Ok(path) => {            
+            // Init logging            
             let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());
             log_config_file_path.push("log4rs.yml");
             println!("Looking for log config file at: {:?}", log_config_file_path);            
@@ -71,7 +70,7 @@ fn main() {
                 .unwrap_or_else(|err| {
                     error!("Failed to read config file. Error: {}", err);
                     panic!("Aborting...");
-                });
+                });                
 
             let config_values: Config = toml::from_str(config_text.as_str())
                 .unwrap_or_else(|err|{
@@ -87,18 +86,57 @@ fn main() {
 
             let team_city_username = config_values.team_city_username;
             let team_city_password = config_values.team_city_password;
-            let team_city_base_url = config_values.team_city_base_url;  
+            let team_city_base_url = config_values.team_city_base_url;
 
-           let stop_blink_transmitter = pin::blink_led(pin::get_led_1());
-
-           thread::sleep(Duration::from_millis(5000));
-
-           stop_blink_transmitter.send(true);
-
-            // Init threads that check build statuses
-            let jenkins_handle = thread::spawn(move || {        
+            // Init various check-status loops
+            let jenkins_handle = thread::spawn(move || {   
+                let mut jenkins_led = pin::RgbLedLight::new(17, 27, 22);
+                run_power_on_test(&mut jenkins_led);
                 loop {
-                    print_jenkins_status(jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str());                        
+                    if let Ok(results) = print_jenkins_status(
+                        jenkins_username.as_str(),
+                        jenkins_password.as_str(),
+                        jenkins_base_url.as_str()) 
+                    {
+                        let (retrieved, not_retrieved): (
+                            Vec<Result<JenkinsBuildStatus, Error>>,
+                            Vec<Result<JenkinsBuildStatus, Error>>,
+                        ) = results.into_iter().partition(|x| x.is_ok());
+
+                        let retrieved_count = retrieved.len();
+                        let not_retrieved_count = not_retrieved.len();
+                        let build_failures = *(&retrieved.iter().filter(|x| x.is_err()).count());
+                        let build_successes = *(&retrieved.iter().filter(|x| x.is_ok()).count());
+
+                        // Failure states: NONE of the builds succeeded.
+                        if build_successes <= 0 {
+                            if not_retrieved_count > build_failures || build_failures == 0 {
+                                // Glow blue if we fail to retrieve the majority, or if we have no success AND no failures
+                                jenkins_led.glow_led(RgbLedLight::BLUE);
+                            }
+                            else {
+                                jenkins_led.blink_led(RgbLedLight::RED);
+                            }
+                        }
+
+                        // Success, or partial success states: at least SOME builds succeeded.
+                        else {
+                            if build_failures == 0 {
+                                jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
+                            }
+                            else if build_successes > build_failures {
+                                jenkins_led.set_led_rgb_values(RgbLedLight::YELLOW);
+                            }
+                            else {
+                                jenkins_led.blink_led(RgbLedLight::RED);
+                            }
+                        }
+
+                        info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
+                    } else { // Network failure, we got _nothing_ back.
+                        jenkins_led.glow_led(RgbLedLight::BLUE);
+                        warn!("--Jenkins--: Failed to retrieve any jobs from Jenkins.");
+                    }                                                           
                     thread::sleep(Duration::from_millis(SLEEP_DURATION));
                 }
             });
@@ -112,38 +150,22 @@ fn main() {
             });
 
             let team_city_handle = thread::spawn(move || {
-                let mut team_city_blink_transmitter: Option<Sender<bool>> = None;
+                let mut team_city_led = pin::RgbLedLight::new(2, 3, 4);
+                run_power_on_test(&mut team_city_led);
                 loop {
                     let team_city_status = get_team_city_status(team_city_username.as_str(), 
                                                                 team_city_password.as_str(), 
                                                                 team_city_base_url.as_str());
-
                     match team_city_status {
                         Some(status) => {
                             match status {
-                                Success => {
-                                    if let Some(tx) = team_city_blink_transmitter {
-                                        tx.send(true);  
-                                        team_city_blink_transmitter = None;
-                                    }
-                                    pin::set_led_rgb_values(pin::get_led_1(), 0, 1, 0);
-                                }
-                                Failure => team_city_blink_transmitter = Some(pin::blink_led(pin::get_led_1())),
-                                Error => {
-                                    if let Some(tx) = team_city_blink_transmitter {
-                                        tx.send(true);  
-                                        team_city_blink_transmitter = None;
-                                    }
-                                    pin::set_led_rgb_values(pin::get_led_1(), 1, 1, 0);
-                                }
+                                TeamCityBuildStatus::Success => team_city_led.set_led_rgb_values(RgbLedLight::GREEN),
+                                TeamCityBuildStatus::Failure => team_city_led.blink_led(RgbLedLight::RED),
+                                TeamCityBuildStatus::Error => team_city_led.set_led_rgb_values(RgbLedLight::BLUE)
                             }
-                        },
+                        }
                         None => {
-                            if let Some(tx) = team_city_blink_transmitter {
-                                tx.send(true);
-                                team_city_blink_transmitter = None;
-                            }
-                            pin::set_led_rgb_values(pin::get_led_1(), 1, 1, 0);
+                            team_city_led.set_led_rgb_values(RgbLedLight::BLUE);
                         }
                     }
 
@@ -161,7 +183,25 @@ fn main() {
     }    
 }
 
-fn print_jenkins_status(username: &str, password: &str, base_url: &str) {        
+fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
+    test_led.set_led_rgb_values(RgbLedLight::RED);
+    thread::sleep(Duration::from_millis(250));
+    test_led.set_led_rgb_values(RgbLedLight::GREEN);
+    thread::sleep(Duration::from_millis(250));
+    test_led.set_led_rgb_values(RgbLedLight::BLUE);
+    thread::sleep(Duration::from_millis(250));
+    test_led.turn_led_off();
+    thread::sleep(Duration::from_millis(250));
+    test_led.set_led_rgb_values(RgbLedLight::WHITE);
+    thread::sleep(Duration::from_millis(250));
+    test_led.turn_led_off();
+
+    test_led.glow_led(RgbLedLight::TEAL);
+    thread::sleep(Duration::from_millis(3000));
+    test_led.turn_led_off();
+}
+
+fn print_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {        
     let url_string = format!("{base}/api/json", base=base_url);
     let mut auth_headers = Headers::new();
     auth_headers.set(Authorization(get_basic_credentials(username, Some(password.to_string()))));
@@ -170,24 +210,27 @@ fn print_jenkins_status(username: &str, password: &str, base_url: &str) {
 
     match all_jobs_response {
         Ok((result, all_jobs_response_headers)) => {               
-            for job in result.jobs {
+            let results = result.jobs.iter().map(|job| {
                 let job_url_string = format!("{base}/job/{job}/lastBuild/api/json", base=base_url, job=job.name);
                 let job_response: Result<(JenkinsBuildResult, Headers), Error> = get_url_response(&job_url_string, auth_headers.clone());
 
                 match job_response {
-                    Ok((job_result, single_job_reponse_headers)) => {                           
-                            info!("Job {} result: {}", job.name, job_result.build_result);
+                    Ok((job_result, single_job_reponse_headers)) => {                        
+                        Ok(job_result.build_result)
                     }                        
                     Err(job_err) => {
                         warn!("HTTP failure when attempting to get job result for job: {}. Error: {}", &job_url_string, job_err);
+                        Err(job_err)
                     }
                 }
-            }
+            }).collect();
+            Ok(results)
         }
         Err(err) => {
             warn!("Error getting all jobs: {}", err);
+            Err(err)
         }
-    }    
+    }
 }
 
 fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Option<TeamCityBuildStatus> {

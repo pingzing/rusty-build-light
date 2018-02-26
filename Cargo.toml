@@ -14,4 +14,4 @@ reqwest = "0.8.2"
 lazy_static = "1.0"
 log4rs = "0.8.0"
 log = "0.4.1"
-sysfs_gpio = "0.5.1"
+wiringpi = {git = "https://github.com/yuhe00/rust-wiringpi/", branch = "fix-build" }
