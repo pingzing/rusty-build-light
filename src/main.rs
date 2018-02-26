@@ -196,9 +196,7 @@ fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
     thread::sleep(Duration::from_millis(250));
     test_led.turn_led_off();
 
-    test_led.glow_led(RgbLedLight::TEAL);
-    thread::sleep(Duration::from_millis(3000));
-    test_led.turn_led_off();
+    test_led.glow_led(RgbLedLight::TEAL);    
 }
 
 fn print_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {        
