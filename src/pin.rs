@@ -15,7 +15,7 @@ pub struct RgbLedLight {
     green_pin: wiringpi::pin::SoftPwmPin<wiringpi::pin::Gpio>,
     blue_pin: wiringpi::pin::SoftPwmPin<wiringpi::pin::Gpio>,
     is_blinking: Arc<Mutex<bool>>,
-    is_blinking_transmitter: Option<Sender<bool>>
+    stop_blinking_transmitter: Option<Sender<bool>>
 }
 
 impl RgbLedLight {
@@ -32,7 +32,7 @@ impl RgbLedLight {
             green_pin: PI.soft_pwm_pin(green),
             blue_pin: PI.soft_pwm_pin(blue),
             is_blinking: Arc::new(Mutex::new(false)),
-            is_blinking_transmitter: None
+            stop_blinking_transmitter: None
         }
     }
 
@@ -62,27 +62,26 @@ impl RgbLedLight {
             green_pin: PI.soft_pwm_pin(self.green_pin.number() as u16),
             blue_pin: PI.soft_pwm_pin(self.blue_pin.number() as u16),
             is_blinking: Arc::new(Mutex::new(false)),
-            is_blinking_transmitter: None
+            stop_blinking_transmitter: None
         };
 
         let (r, g, b) = rgb; //destructure the tuple, so we can refer to individual values
 
         self.start_blinking();
-
+        let (tx, rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+        self.stop_blinking_transmitter = Some(tx);
         // reference to self.is_blinking, so the thread can safely watch it for value changes        
         let is_blinking = self.is_blinking.clone();
         thread::spawn(move || {                       
             loop {                
-                // Scoped, so that as soon as we exit the scope, the lock on "is_blinking" is released.
-                {
-                    if !*is_blinking.lock().unwrap() { return; }
+                if rx.try_recv().is_ok() {
+                    return;
                 }
                 led_clone.set_led_rgb_values_internal(r, g, b);
                 thread::sleep(Duration::from_millis(750));
 
-                // Scoped, so that as soon as we exit the scope, the lock on "is_blinking" is released.
-                {
-                    if !*is_blinking.lock().unwrap() { return; }
+                if rx.try_recv().is_ok() {
+                    return;
                 }
                 led_clone.turn_led_off_internal();
                 thread::sleep(Duration::from_millis(750));
@@ -100,14 +99,14 @@ impl RgbLedLight {
             green_pin: PI.soft_pwm_pin(self.green_pin.number() as u16),
             blue_pin: PI.soft_pwm_pin(self.blue_pin.number() as u16),
             is_blinking: Arc::new(Mutex::new(false)),
-            is_blinking_transmitter: None
+            stop_blinking_transmitter: None
         };
 
         let (r, g, b) = rgb; //destructure the tuple, so we can refer to individual values
 
         self.start_blinking();
         let (tx, rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
-        self.is_blinking_transmitter = Some(tx);
+        self.stop_blinking_transmitter = Some(tx);
         thread::spawn(move || {                       
             loop {                 
                 if rx.try_recv().is_ok() {
@@ -163,7 +162,7 @@ impl RgbLedLight {
     }
 
     fn stop_blinking(&mut self) {
-        if let Some(ref tx) = self.is_blinking_transmitter {
+        if let Some(ref tx) = self.stop_blinking_transmitter {
             tx.send(true);
         }
         let mut is_blinking = self.is_blinking.lock().unwrap();
