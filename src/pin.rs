@@ -1,6 +1,7 @@
 use std::time::Duration;
 use std::thread;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc::{Sender, Receiver};
 use wiringpi;
 use wiringpi::*;
 use wiringpi::pin::{Pin};
@@ -13,7 +14,8 @@ pub struct RgbLedLight {
     red_pin: wiringpi::pin::SoftPwmPin<wiringpi::pin::Gpio>,
     green_pin: wiringpi::pin::SoftPwmPin<wiringpi::pin::Gpio>,
     blue_pin: wiringpi::pin::SoftPwmPin<wiringpi::pin::Gpio>,
-    is_blinking: Arc<Mutex<bool>>
+    is_blinking: Arc<Mutex<bool>>,
+    is_blinking_transmitter: Option<Sender<bool>>
 }
 
 impl RgbLedLight {
@@ -29,7 +31,8 @@ impl RgbLedLight {
             red_pin: PI.soft_pwm_pin(red),
             green_pin: PI.soft_pwm_pin(green),
             blue_pin: PI.soft_pwm_pin(blue),
-            is_blinking: Arc::new(Mutex::new(false))
+            is_blinking: Arc::new(Mutex::new(false)),
+            is_blinking_transmitter: None
         }
     }
 
@@ -58,7 +61,8 @@ impl RgbLedLight {
             red_pin: PI.soft_pwm_pin(self.red_pin.number() as u16),
             green_pin: PI.soft_pwm_pin(self.green_pin.number() as u16),
             blue_pin: PI.soft_pwm_pin(self.blue_pin.number() as u16),
-            is_blinking: Arc::new(Mutex::new(false))
+            is_blinking: Arc::new(Mutex::new(false)),
+            is_blinking_transmitter: None
         };
 
         let (r, g, b) = rgb; //destructure the tuple, so we can refer to individual values
@@ -95,25 +99,24 @@ impl RgbLedLight {
             red_pin: PI.soft_pwm_pin(self.red_pin.number() as u16),
             green_pin: PI.soft_pwm_pin(self.green_pin.number() as u16),
             blue_pin: PI.soft_pwm_pin(self.blue_pin.number() as u16),
-            is_blinking: Arc::new(Mutex::new(false))
+            is_blinking: Arc::new(Mutex::new(false)),
+            is_blinking_transmitter: None
         };
 
         let (r, g, b) = rgb; //destructure the tuple, so we can refer to individual values
 
         self.start_blinking();
-        // reference to self.is_blinking, so the thread can safely watch it for value changes        
-        let is_blinking = self.is_blinking.clone();
+        let (tx, rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+        self.is_blinking_transmitter = Some(tx);
         thread::spawn(move || {                       
-            loop {  
-                // Scoped, so that as soon as we exit the scope, the lock on "is_blinking" is released.
-                {
-                    if !*is_blinking.lock().unwrap() { return; }
+            loop {                 
+                if rx.try_recv().is_ok() {
+                    return;
                 }
-                for i in 0..101 {  
-                    // Scoped, so that as soon as we exit the scope, the lock on "is_blinking" is released.
-                    {
-                        if !*is_blinking.lock().unwrap() { return; }
-                    }                  
+                for i in 0..101 {                      
+                    if rx.try_recv().is_ok() {
+                        return;
+                    }                
                     let partial_red = ((i as f32 / 100f32) * r as f32) as i32;
                     let partial_green = ((i as f32 / 100f32) * g as f32) as i32;
                     let partial_blue = ((i as f32 / 100f32) * b as f32) as i32;
@@ -122,9 +125,8 @@ impl RgbLedLight {
                 }                               
                 
                 for i in (0..101).rev() {
-                    // Scoped, so that as soon as we exit the scope, the lock on "is_blinking" is released.
-                    {
-                        if !*is_blinking.lock().unwrap() { return; }
+                    if rx.try_recv().is_ok() {
+                       return;
                     }
 
                     let partial_red = ((i as f32 / 100f32) * r as f32) as i32;
@@ -161,9 +163,11 @@ impl RgbLedLight {
     }
 
     fn stop_blinking(&mut self) {
+        if let Some(ref tx) = self.is_blinking_transmitter {
+            tx.send(true);
+        }
         let mut is_blinking = self.is_blinking.lock().unwrap();
-        *is_blinking = false;
-        thread::sleep(Duration::from_millis(100)); // Try to prevent competing blink threads
+        *is_blinking = false;        
     }
 
     fn is_blinking(&mut self) -> bool {
