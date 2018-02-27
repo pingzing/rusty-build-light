@@ -1,13 +1,42 @@
 # Rusty Build Light
-It's a build light for Raspberry Pi. In Rust!
+It's a build light for Raspberry Pi. In Rust! Designed for the Finavia projecte, and set up to talk to its Jenkins, Team City and Unity Cloud CI pipelines.
+
+* [Requirements](#requirements)
+* [Building locally](#building-locally)
+* [Building for ARM](#building-for-arm)
+* [Setting up the Raspberry Pi](#setting-up-the-raspberry-pi)
+* [Running and Configuring the Build Light](#running-and-configuring-the-build-light)
+* [Circuit Diagram](#circuit-diagram)
 
 ## Requirements
 
-Rust. Mostly easily acquired via [rustup](https://www.rustup.rs/).
+ * OpenSSL and development headers (for local development).
+ * pkg-config (for local development).
+ * Some version of Linux. Sorry. WSL works though!
+ * Rust. Mostly easily acquired via [rustup](https://www.rustup.rs/).
+ * Cross-compilation: Docker. 
+ * If cross-compiling without Docker, you'll need a version of OpenSSL compiled for ARM. Which you'll probably have to do yourself.
 
-If cross-compiling without Docker, you'll need a version of OpenSSL compiled for ARM. Which you'll probably have to do yourself.
+ ## Building locally
 
-Cross-compilation: Docker. 
+ (i.e. not-ARM)
+
+If you don't have them already, you'll need OpenSSL development headers. On Ubuntu and its derivatives, they can be acquired by: `sudo apt-get install libssl-dev`.
+You'll also need pkg-config: `sudo apt-get install pkg-config`.
+
+When compiling locally, you should enable the WiringPi crate's feature flag, which stubs out calls to the GPIO pins, and replaces them with print-to-console.
+
+Then, it should just be
+
+```bash
+$ cargo build --features wiringpi/development
+```
+
+If you have set up you environment for cross-compilation (see below), it would be:
+
+```bash
+$ cargo build --target=arm-unknown-linux-gnueabihf
+```
 
 ## Building for ARM
 
@@ -21,7 +50,7 @@ Build the docker image from the `Dockerfile`
 ```bash
 $ cd docker
 $ docker build . --tag "rust-arm-openssl"
-$ docker create --name "rust-arm-openssl" -v /absolute/path/to/source/folder:/source rust-arm-openssl
+$ docker run --rm --name "rust-arm-openssl" -v /absolute/path/to/source/folder:/source rust-arm-openssl
 ```
 
 Now, run the created container:
@@ -122,3 +151,84 @@ linker = "arm-linux-gnueabihf-gcc"
  ```bash
  cargo build --target=arm-unknown-linux-gnueabihf
  ```
+
+ ## Setting up the Raspberry Pi
+
+Three things are required: an OpenVPN profile with access to the CI servers, auto-reconnect to Wi-Fi on boot, and Pi needs to be set up to autostart the program on boot.
+
+### OpenVPN
+ 
+ * Get profile from Confluence
+ * Edit your profile, and add a line that says `auth-user-pass auth.txt`. 
+ * Create a file named `auth.txt` in `etc/openvpn` (note: check this, mine went into openvpn/conf.d somewhere). Its contents should just be a.) Your VPN username on the first line and, b.) Your VPN password on the second.
+
+ Done!
+
+### Wi-Fi
+
+* Ensure that the first line of `etc/network/interfaces` is `auto wlan0` (or replace "wlan0" with the name of your Wi-Fi interface).
+* Add the following to the bottom of the file:
+```bash
+allow-hotplug wlan0
+iface wlan0 inet dhcp
+wpa-conf /etc/wpa_supplicant/wpa_supplicant.conf
+iface default inet dhcp
+```
+* Now, we need to create `wpa_supplicant.conf`. Create it at `/etc/wpa_supplicant/wpa_supplicant.conf`. 
+* Your `wpa_supplicant.conf` entry will _most likely_ need to look something like the following for your network:
+```bash
+network={
+    ssid="YOUR_NETWORK_NAME"
+    psk="YOUR_NETWORK_PASSWORD"
+    key_mgmt=WPA-PSK
+}
+```
+
+Done!
+
+### Autostarting the Program on Pi Boot
+
+If we're using Raspbian "Jessie" or later, we can use systemd. If you're using something earlier...Google it, I dunno.
+
+To create a new systemd service, create a file named `rusty-build-startup.service` in `/lib/systemd/system`. Its contents will need to look something like the following:
+
+```ini
+[Unit]
+Description=The Finavia Project build light.
+
+[Service]
+ExecStart=/bin/bash -c /absolute/path/to/the/rusty/build/light/executable
+WorkingDirectory=/absolute/path/to/directory/containing/rusty/build/light/and/its/config/files
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then, register and start the service:
+
+```bash
+$ sudo systemctl enable rusty-build-startup.service
+$ sudo systemctl start rusty-build-startup.service
+```
+
+## Running and Configuring the Build Light
+
+The application can be configured through the use of two configuration files: 
+
+* `log4rs.yml` for loggging. Changes to this file will be auto-detected every thirty seconds.
+* and `config.toml` for application settings. Changes to this file are only read on application startup.
+
+Both of these files are necessary, and must be in the same directory as the `rusty_build_light` executable. They are copied from `/config` to the output directory as part of the build process (see `build.rs`).
+
+The repository includes an example `config.toml` which is mostly blank, and commented to assist with usage.
+
+Once the files are in place, running the application is as simple as:
+```bash
+$ /.rusty_build_light
+```
+
+## Circuit diagram
+
+TBD. Text for now:
+
+The build light assumes 3 RGB LEDs, one with each color LED being driven by a Raspberry Pi GPIO pin. The pins used are configurable in `config.toml` and given in `RGB` order.
