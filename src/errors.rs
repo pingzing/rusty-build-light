@@ -1,5 +1,5 @@
 #[derive(Debug, Fail)]
-pub enum UnityBuildError {
+pub enum UnityRetrievalError {
     #[fail(display = "Unity Cloud Build returned a response, but no build information was contained.")]
     NoBuildsReturned,
     

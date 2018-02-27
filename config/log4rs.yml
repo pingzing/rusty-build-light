@@ -23,7 +23,7 @@ appenders:
     encoder:
       pattern: "{d} - {m}{n}"
 
-# Set the default logging level to "ifno" and attach the "stdout" appender to the root
+# Set the default logging level to "info" and attach the "stdout" and "file" appender to the root
 root:
   level: info
   appenders:

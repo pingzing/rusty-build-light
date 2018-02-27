@@ -163,6 +163,7 @@ impl RgbLedLight {
     fn stop_blinking(&mut self) {
         let mut is_blinking = self.is_blinking.lock().unwrap();
         *is_blinking = false;
+        thread::sleep(Duration::from_millis(100)); // Try to prevent competing blink threads
     }
 
     fn is_blinking(&mut self) -> bool {

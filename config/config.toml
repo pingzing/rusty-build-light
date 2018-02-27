@@ -4,12 +4,18 @@ jenkins_username = ""
 jenkins_password = ""
 # No trailing slash.
 jenkins_base_url = ""
+# Pins should use the Broadcom pin numbers (sometimes referred to as BCM01, etc, in pinouts)
+# Pin numbers are given in order as R, G, B
+jenkins_led_pins = [17, 27, 22]
 
 # --- UNITY ---
 
 unity_cloud_api_token = ""
 # No trailing slash, everything up to "buildtargets"
 unity_base_url = ""
+# Pins should use the Broadcom pin numbers (sometimes referred to as BCM01, etc, in pinouts)
+# Pin numbers are given in order as R, G, B
+unity_led_pins = [5, 6, 13]
 
 # --- TEAM CITY ---
 
@@ -17,3 +23,6 @@ team_city_username = ""
 team_city_password = ""
 # No trailing slash.
 team_city_base_url = ""
+# Pins should use the Broadcom pin numbers (sometimes referred to as BCM01, etc, in pinouts)
+# Pin numbers are given in order as R, G, B
+team_city_led_pins = [2, 3, 4]
