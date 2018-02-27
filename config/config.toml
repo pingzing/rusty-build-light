@@ -1,0 +1,19 @@
+# --- JENKINS ---
+
+jenkins_username = ""
+jenkins_password = ""
+# No trailing slash.
+jenkins_base_url = ""
+
+# --- UNITY ---
+
+unity_cloud_api_token = ""
+# No trailing slash, everything up to "buildtargets"
+unity_base_url = ""
+
+# --- TEAM CITY ---
+
+team_city_username = ""
+team_city_password = ""
+# No trailing slash.
+team_city_base_url = ""
