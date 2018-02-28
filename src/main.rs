@@ -67,7 +67,7 @@ fn main() {
     let is_running_flag = Arc::new(AtomicBool::new(true));
     let r = is_running_flag.clone();
     ctrlc::set_handler(move || {
-        info!("Ctrl-C received, signaling main to stop.");
+        info!("Ctrl-C received, signaling child threads to stop...");
         r.store(false, Ordering::SeqCst); // signal that main should stop.
     }).unwrap_or_else(|_| {
         error!("Error setting Ctrl-C handler.");
@@ -126,7 +126,7 @@ fn main() {
                 run_power_on_test(&mut jenkins_led);
                 loop {    
                     run_one_jenkins(&mut jenkins_led, jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str());
-                    if jenkins_running_flag.load(Ordering::SeqCst) {
+                    if !jenkins_running_flag.load(Ordering::SeqCst) {
                         jenkins_led.glow_led(RgbLedLight::WHITE);
                         thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
                         jenkins_led.turn_led_off();
@@ -141,7 +141,7 @@ fn main() {
                 let mut sleep_duration = UNITY_SLEEP_DURATION;
                 loop {
                     sleep_duration = run_one_unity(&mut unity_led, unity_api_token.as_str(), unity_base_url.as_str(), sleep_duration);
-                    if unity_running_flag.load(Ordering::SeqCst) {
+                    if !unity_running_flag.load(Ordering::SeqCst) {
                         unity_led.glow_led(RgbLedLight::WHITE);
                         thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
                         unity_led.turn_led_off();
@@ -154,8 +154,8 @@ fn main() {
                 let mut team_city_led = RgbLedLight::new(team_city_r, team_city_g, team_city_b);
                 run_power_on_test(&mut team_city_led);
                 loop {
-                    run_one_team_city(&mut team_city_led, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());
-                    if team_city_running_flag.load(Ordering::SeqCst) {
+                    run_one_team_city(&mut team_city_led, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());                    
+                    if !team_city_running_flag.load(Ordering::SeqCst) {
                         team_city_led.glow_led(RgbLedLight::WHITE);
                         thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
                         team_city_led.turn_led_off();
