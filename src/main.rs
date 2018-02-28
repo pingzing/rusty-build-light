@@ -34,6 +34,7 @@ extern crate log4rs;
 #[macro_use]
 extern crate hyper;
 
+extern crate ctrlc;
 extern crate chrono;
 extern crate reqwest;
 extern crate serde;
@@ -45,14 +46,14 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;
 use std::thread;
+use std::panic;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use reqwest::{Client, Url, StatusCode};
 use reqwest::header::{Accept, Authorization, Basic, ContentType, Headers, qitem};
-
 use reqwest::mime;
-
 use failure::Error;
-
 use chrono::prelude::*;
 
 const SLEEP_DURATION: u64 = 5000;
@@ -63,7 +64,17 @@ lazy_static!{
 }
 
 fn main() {
-    match std::env::current_exe() {        
+    let is_running_flag = Arc::new(AtomicBool::new(true));
+    let r = is_running_flag.clone();
+    ctrlc::set_handler(move || {
+        info!("Ctrl-C received, signaling main to stop.");
+        r.store(false, Ordering::SeqCst); // signal that main should stop.
+    }).unwrap_or_else(|_| {
+        error!("Error setting Ctrl-C handler.");
+        panic!("Aborting...");
+    });
+
+    match std::env::current_exe() {
         Ok(path) => {            
             // Init logging            
             let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());
@@ -95,36 +106,70 @@ fn main() {
             let jenkins_username = config_values.jenkins_username;
             let jenkins_password = config_values.jenkins_password;
             let jenkins_base_url = config_values.jenkins_base_url;
+            let jenkins_running_flag = is_running_flag.clone();
             let (jenkins_r, jenkins_g, jenkins_b) = (config_values.jenkins_led_pins[0], config_values.jenkins_led_pins[1], config_values.jenkins_led_pins[2]);
 
             let unity_api_token = config_values.unity_cloud_api_token;
             let unity_base_url = config_values.unity_base_url;
+            let unity_running_flag = is_running_flag.clone();
             let (unity_r, unity_g, unity_b) = (config_values.unity_led_pins[0], config_values.unity_led_pins[1], config_values.unity_led_pins[2]);
 
             let team_city_username = config_values.team_city_username;
             let team_city_password = config_values.team_city_password;
             let team_city_base_url = config_values.team_city_base_url;
+            let team_city_running_flag = is_running_flag.clone();
             let (team_city_r, team_city_g, team_city_b) = (config_values.team_city_led_pins[0], config_values.team_city_led_pins[1], config_values.team_city_led_pins[2]);
 
             // Init various check-status loops
-            let jenkins_handle = thread::spawn(move || {
-                let jenkins_led = RgbLedLight::new(jenkins_r, jenkins_g, jenkins_b);
-                run_jenkins_loop(jenkins_led, jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str())
+            let jenkins_handle = thread::spawn(move || {                
+                let mut jenkins_led = RgbLedLight::new(jenkins_r, jenkins_g, jenkins_b);
+                run_power_on_test(&mut jenkins_led);
+                loop {    
+                    run_one_jenkins(&mut jenkins_led, jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str());
+                    if jenkins_running_flag.load(Ordering::SeqCst) {
+                        jenkins_led.glow_led(RgbLedLight::WHITE);
+                        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+                        jenkins_led.turn_led_off();
+                        return;
+                    }
+                }
             });
 
-            let unity_cloud_handle = thread::spawn(move || {
-                let unity_led = RgbLedLight::new(unity_r, unity_g, unity_b);
-                run_unity_loop(unity_led, unity_api_token.as_str(), unity_base_url.as_str());
+            let unity_cloud_handle = thread::spawn(move || {                
+                let mut unity_led = RgbLedLight::new(unity_r, unity_g, unity_b);
+                run_power_on_test(&mut unity_led);
+                let mut sleep_duration = UNITY_SLEEP_DURATION;
+                loop {
+                    sleep_duration = run_one_unity(&mut unity_led, unity_api_token.as_str(), unity_base_url.as_str(), sleep_duration);
+                    if unity_running_flag.load(Ordering::SeqCst) {
+                        unity_led.glow_led(RgbLedLight::WHITE);
+                        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+                        unity_led.turn_led_off();
+                        return;
+                    }
+                }
             });
 
-            let team_city_handle = thread::spawn(move || {
-                let team_city_led = RgbLedLight::new(team_city_r, team_city_g, team_city_b);
-                run_team_city_loop(team_city_led, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());
+            let team_city_handle = thread::spawn(move || {                
+                let mut team_city_led = RgbLedLight::new(team_city_r, team_city_g, team_city_b);
+                run_power_on_test(&mut team_city_led);
+                loop {
+                    run_one_team_city(&mut team_city_led, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());
+                    if team_city_running_flag.load(Ordering::SeqCst) {
+                        team_city_led.glow_led(RgbLedLight::WHITE);
+                        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+                        team_city_led.turn_led_off();
+                        return;
+                    }
+                }
             });
-                        
-            jenkins_handle.join().expect("Unable to join the Jenkins status thread.");
-            unity_cloud_handle.join().expect("Unable to join the Unity Cloud build status thread.");
-            team_city_handle.join().expect("Unable to join Team City build status thread.");
+
+            // Wait for all three main threads to finish.                        
+            jenkins_handle.join().expect("The Jenkins thread terminated abnormally.");
+            unity_cloud_handle.join().expect("The Unity Cloud build thread terminated abnormally.");
+            team_city_handle.join().expect("The Team City thread terminated abnormally.");
+
+            info!("All threads terminated. Terminating program...");
         }
         Err(e) => {
             error!("Failed to obtain current executable directory. Details: {}. Exiting...", e);
@@ -150,59 +195,57 @@ fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
     test_led.glow_led(RgbLedLight::TEAL);    
 }
 
-fn run_jenkins_loop(mut jenkins_led: RgbLedLight, jenkins_username: &str, jenkins_password: &str, jenkins_base_url: &str) {    
-    run_power_on_test(&mut jenkins_led);
-    loop {
-        match get_jenkins_status(
-            jenkins_username,
-            jenkins_password,
-            jenkins_base_url) 
-        {
-            Ok(results) => {
-                let (retrieved, not_retrieved): (
-                    Vec<Result<JenkinsBuildStatus, Error>>,
-                    Vec<Result<JenkinsBuildStatus, Error>>,
-                ) = results.into_iter().partition(|x| x.is_ok());
+fn run_one_jenkins(jenkins_led: &mut RgbLedLight, jenkins_username: &str, jenkins_password: &str, jenkins_base_url: &str) {    
+    match get_jenkins_status(
+        jenkins_username,
+        jenkins_password,
+        jenkins_base_url) 
+    {
+        Ok(results) => {
+            let (retrieved, not_retrieved): (
+                Vec<Result<JenkinsBuildStatus, Error>>,
+                Vec<Result<JenkinsBuildStatus, Error>>,
+            ) = results.into_iter().partition(|x| x.is_ok());
 
-                let retrieved: Vec<JenkinsBuildStatus> = retrieved.into_iter().map(|x| x.unwrap()).collect();
-                let retrieved_count = retrieved.len();
-                let not_retrieved_count = not_retrieved.len();
-                let build_failures = *(&retrieved.iter().filter(|x| **x != JenkinsBuildStatus::Success).count());
-                let build_successes = *(&retrieved.iter().filter(|x| **x == JenkinsBuildStatus::Success).count());
+            let retrieved: Vec<JenkinsBuildStatus> = retrieved.into_iter().map(|x| x.unwrap()).collect();
+            let retrieved_count = retrieved.len();
+            let not_retrieved_count = not_retrieved.len();
+            let build_failures = *(&retrieved.iter().filter(|x| **x != JenkinsBuildStatus::Success).count());
+            let build_successes = *(&retrieved.iter().filter(|x| **x == JenkinsBuildStatus::Success).count());
 
-                // Failure states: NONE of the builds succeeded.
-                if build_successes <= 0 {
-                    if not_retrieved_count > build_failures || build_failures == 0 {
-                        // Glow blue if we fail to retrieve the majority, or if we have no success AND no failures
-                        jenkins_led.glow_led(RgbLedLight::BLUE);
-                    }
-                    else {
-                        jenkins_led.blink_led(RgbLedLight::RED);
-                    }
-                }
-
-                // Success, or partial success states: at least SOME builds succeeded.
-                else {
-                    if build_failures == 0 {
-                        jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
-                    }
-                    else if build_successes > build_failures {
-                        jenkins_led.glow_led(RgbLedLight::GREEN);
-                    }
-                    else {
-                        jenkins_led.blink_led(RgbLedLight::RED);
-                    }
-                }
-
-                info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
-            },
-            Err(e) => {
+            // Failure states: NONE of the builds succeeded.
+            if build_successes <= 0 {
+                if not_retrieved_count > build_failures || build_failures == 0 {
+                    // Glow blue if we fail to retrieve the majority, or if we have no success AND no failures
                     jenkins_led.glow_led(RgbLedLight::BLUE);
-                warn!("--Jenkins--: Failed to retrieve any jobs from Jenkins. Details: {}", e);
+                }
+                else {
+                    jenkins_led.blink_led(RgbLedLight::RED);
+                }
             }
-        }                      
-        thread::sleep(Duration::from_millis(SLEEP_DURATION));
-    }
+
+            // Success, or partial success states: at least SOME builds succeeded.
+            else {
+                if build_failures == 0 {
+                    jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
+                }
+                else if build_successes > build_failures {
+                    jenkins_led.glow_led(RgbLedLight::GREEN);
+                }
+                else {
+                    jenkins_led.blink_led(RgbLedLight::RED);
+                }
+            }
+
+            info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
+        },
+        Err(e) => {
+                jenkins_led.glow_led(RgbLedLight::BLUE);
+            warn!("--Jenkins--: Failed to retrieve any jobs from Jenkins. Details: {}", e);
+        }
+    }                      
+    thread::sleep(Duration::from_millis(SLEEP_DURATION));
+
 }
 
 fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {        
@@ -237,27 +280,24 @@ fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<
     }
 }
 
-fn run_team_city_loop(mut team_city_led: RgbLedLight, team_city_username: &str, team_city_password: &str, team_city_base_url: &str) {    
-    run_power_on_test(&mut team_city_led);
-    loop {
-        let team_city_status = get_team_city_status(team_city_username, 
-                                                    team_city_password, 
-                                                    team_city_base_url);
-        match team_city_status {
-            Some(status) => {
-                match status {
-                    TeamCityBuildStatus::Success => team_city_led.set_led_rgb_values(RgbLedLight::GREEN),
-                    TeamCityBuildStatus::Failure => team_city_led.blink_led(RgbLedLight::RED),
-                    TeamCityBuildStatus::Error => team_city_led.glow_led(RgbLedLight::BLUE)
-                }
-            }
-            None => {
-                team_city_led.glow_led(RgbLedLight::BLUE);
+fn run_one_team_city(team_city_led: &mut RgbLedLight, team_city_username: &str, team_city_password: &str, team_city_base_url: &str) {        
+    let team_city_status = get_team_city_status(team_city_username, 
+                                                team_city_password, 
+                                                team_city_base_url);
+    match team_city_status {
+        Some(status) => {
+            match status {
+                TeamCityBuildStatus::Success => team_city_led.set_led_rgb_values(RgbLedLight::GREEN),
+                TeamCityBuildStatus::Failure => team_city_led.blink_led(RgbLedLight::RED),
+                TeamCityBuildStatus::Error => team_city_led.glow_led(RgbLedLight::BLUE)
             }
         }
-
-        thread::sleep(Duration::from_millis(SLEEP_DURATION));
+        None => {
+            team_city_led.glow_led(RgbLedLight::BLUE);
+        }
     }
+
+    thread::sleep(Duration::from_millis(SLEEP_DURATION));    
 }
 
 fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Option<TeamCityBuildStatus> {
@@ -283,82 +323,79 @@ fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Optio
     }
 }
 
-fn run_unity_loop(mut unity_led: RgbLedLight, unity_api_token: &str, unity_base_url: &str) {    
-    let mut sleep_duration = UNITY_SLEEP_DURATION;
-    run_power_on_test(&mut unity_led);
-    loop {
-        let unity_results = get_unity_cloud_status(unity_api_token, unity_base_url);
-        let (retrieved, not_retrieved): (
-            Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>>,
-            Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>>,
-        ) = unity_results.into_iter().partition(|x| x.is_ok());        
+fn run_one_unity(unity_led: &mut RgbLedLight, unity_api_token: &str, unity_base_url: &str, mut sleep_duration: u64) -> u64 {    
+    let unity_results = get_unity_cloud_status(unity_api_token, unity_base_url);
+    let (retrieved, not_retrieved): (
+        Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>>,
+        Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>>,
+    ) = unity_results.into_iter().partition(|x| x.is_ok());        
 
-        let retrieved_results: Vec<(UnityBuildStatus, Headers)> = retrieved.into_iter().map(|x| x.unwrap()).collect();
-        let not_retrieved_results: Vec<UnityRetrievalError> = not_retrieved.into_iter().map(|x| x.unwrap_err()).collect();                    
+    let retrieved_results: Vec<(UnityBuildStatus, Headers)> = retrieved.into_iter().map(|x| x.unwrap()).collect();
+    let not_retrieved_results: Vec<UnityRetrievalError> = not_retrieved.into_iter().map(|x| x.unwrap_err()).collect();                    
 
-        if not_retrieved_results.len() > 0 {
-            info!("--Unity--: At least one result no retrieved.");
+    if not_retrieved_results.len() > 0 {
+        info!("--Unity--: At least one result no retrieved.");
+        unity_led.glow_led(RgbLedLight::BLUE);
+    } else {
+        let passing_builds = *(&retrieved_results.iter().filter(|x| x.0 == UnityBuildStatus::Success).count());
+        let failing_builds = *(&retrieved_results.iter().filter(|x| x.0 == UnityBuildStatus::Failure).count());
+        let other_status_builds = *(&retrieved_results.iter().filter(|x| x.0 != UnityBuildStatus::Success && x.0 != UnityBuildStatus::Failure).count());
+
+        // More misc statuses than knowns
+        if other_status_builds > passing_builds + failing_builds {
+            info!("--Unity--: More otherstatuses than passing AND failing.");
             unity_led.glow_led(RgbLedLight::BLUE);
-        } else {
-            let passing_builds = *(&retrieved_results.iter().filter(|x| x.0 == UnityBuildStatus::Success).count());
-            let failing_builds = *(&retrieved_results.iter().filter(|x| x.0 == UnityBuildStatus::Failure).count());
-            let other_status_builds = *(&retrieved_results.iter().filter(|x| x.0 != UnityBuildStatus::Success && x.0 != UnityBuildStatus::Failure).count());
+        }
+        // All passing or misc
+        else if passing_builds > 0 && failing_builds == 0 {
+            info!("--Unity--: All passing or misc.");
+            unity_led.set_led_rgb_values(RgbLedLight::GREEN);
+        } 
+        // All failing or misc
+        else if passing_builds == 0 && failing_builds > 0 {                            
+            info!("--Unity--: All failing or misc.");
+            unity_led.blink_led(RgbLedLight::RED);
+        }
+        // Both failing and passing
+        else if passing_builds > 0 && failing_builds > 0 {
+            info!("--Unity--: At least one failing AND passing.");
+            unity_led.glow_led(RgbLedLight::GREEN);
+        }
+        // ?????
+        else {
+            info!("--Unity--: Default case. Glowing white.");
+            unity_led.glow_led(RgbLedLight::WHITE);
+        }
 
-            // More misc statuses than knowns
-            if other_status_builds > passing_builds + failing_builds {
-                info!("--Unity--: More otherstatuses than passing AND failing.");
-                unity_led.glow_led(RgbLedLight::BLUE);
-            }
-            // All passing or misc
-            else if passing_builds > 0 && failing_builds == 0 {
-                info!("--Unity--: All passing or misc.");
-                unity_led.set_led_rgb_values(RgbLedLight::GREEN);
-            } 
-            // All failing or misc
-            else if passing_builds == 0 && failing_builds > 0 {                            
-                info!("--Unity--: All failing or misc.");
-                unity_led.blink_led(RgbLedLight::RED);
-            }
-            // Both failing and passing
-            else if passing_builds > 0 && failing_builds > 0 {
-                info!("--Unity--: At least one failing AND passing.");
-                unity_led.glow_led(RgbLedLight::GREEN);
-            }
-            // ?????
-            else {
-                info!("--Unity--: Default case. Glowing white.");
-                unity_led.glow_led(RgbLedLight::WHITE);
-            }
+        info!("--Unity--: {} passing builds, {} failing builds, {} builds with misc statuses.", passing_builds, failing_builds, other_status_builds);
+    }                    
 
-            info!("--Unity--: {} passing builds, {} failing builds, {} builds with misc statuses.", passing_builds, failing_builds, other_status_builds);
-        }                    
+    // Adjust our timeout based on current rate limiting (if possible)
+    if retrieved_results.len() > 0 {
+        // Grab any of the headers at random
+        let response_headers = &retrieved_results[0].1;
+        if let Some(limit_remaining) = response_headers.get::<headers::XRateLimitRemaining>() {
+            let limit_remaining = limit_remaining.0;
+            if let Some(reset_timestamp_utc) = response_headers.get::<headers::XRateLimitReset>() {
+                let reset_timestamp_utc = reset_timestamp_utc.0 as f32 / 1000f32; // Convert from milliseconds to seconds
+                let now_unix_seconds = Utc::now().timestamp() as u64;
+                let max_requests_per_second = limit_remaining as f32 / ((reset_timestamp_utc - now_unix_seconds as f32) as f32).max(1f32);
+                let seconds_per_request = (1f32 / max_requests_per_second).max(UNITY_SLEEP_DURATION as f32);
+                sleep_duration = seconds_per_request as u64;
 
-        // Adjust our timeout based on current rate limiting (if possible)
-        if retrieved_results.len() > 0 {
-            // Grab any of the headers at random
-            let response_headers = &retrieved_results[0].1;
-            if let Some(limit_remaining) = response_headers.get::<headers::XRateLimitRemaining>() {
-                let limit_remaining = limit_remaining.0;
-                if let Some(reset_timestamp_utc) = response_headers.get::<headers::XRateLimitReset>() {
-                    let reset_timestamp_utc = reset_timestamp_utc.0 as f32 / 1000f32; // Convert from milliseconds to seconds
-                    let now_unix_seconds = Utc::now().timestamp() as u64;
-                    let max_requests_per_second = limit_remaining as f32 / ((reset_timestamp_utc - now_unix_seconds as f32) as f32).max(1f32);
-                    let seconds_per_request = (1f32 / max_requests_per_second).max(UNITY_SLEEP_DURATION as f32);
-                    sleep_duration = seconds_per_request as u64;
-
-                    let human_date: DateTime<Utc> = DateTime::from_utc(NaiveDateTime::from_timestamp(reset_timestamp_utc as i64, 0), Utc);
-                    info!("--Unity--: Readjusting sleep duration per iteration to {}. RateLimit-Remaining was: {}. Reset-Timestamp was: {}. Will reset at: {}", 
-                        sleep_duration, 
-                        limit_remaining,
-                        reset_timestamp_utc,
-                        human_date);
-                }
+                let human_date: DateTime<Utc> = DateTime::from_utc(NaiveDateTime::from_timestamp(reset_timestamp_utc as i64, 0), Utc);
+                info!("--Unity--: Readjusting sleep duration per iteration to {}. RateLimit-Remaining was: {}. Reset-Timestamp was: {}. Will reset at: {}", 
+                    sleep_duration, 
+                    limit_remaining,
+                    reset_timestamp_utc,
+                    human_date);
             }
-        }                    
+        }
+    }                    
 
-        // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
-        thread::sleep(Duration::from_millis(sleep_duration));
-    }        
+    // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
+    thread::sleep(Duration::from_millis(sleep_duration));
+    sleep_duration
 }
 
 fn get_unity_cloud_status(api_token: &str, base_url: &str) -> Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>> {    

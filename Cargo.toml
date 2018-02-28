@@ -17,3 +17,4 @@ log = "0.4.1"
 wiringpi = {git = "https://github.com/yuhe00/rust-wiringpi/", branch = "fix-build" }
 hyper = "0.11.12"
 chrono = "0.4.0"
+ctrlc = { version = "3.0", features = ["termination"] }
