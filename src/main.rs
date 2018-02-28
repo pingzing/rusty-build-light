@@ -55,7 +55,8 @@ use failure::Error;
 
 use chrono::prelude::*;
 
-const SLEEP_DURATION: u64 = 10000;
+const SLEEP_DURATION: u64 = 5000;
+const UNITY_SLEEP_DURATION: u64 = 1000 * 60;
 
 lazy_static!{
     static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();    
@@ -281,7 +282,7 @@ fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Optio
 }
 
 fn run_unity_loop(mut unity_led: RgbLedLight, unity_api_token: &str, unity_base_url: &str) {    
-    let mut sleep_duration = SLEEP_DURATION;
+    let mut sleep_duration = UNITY_SLEEP_DURATION;
     run_power_on_test(&mut unity_led);
     loop {
         let unity_results = get_unity_cloud_status(unity_api_token, unity_base_url);
@@ -340,7 +341,7 @@ fn run_unity_loop(mut unity_led: RgbLedLight, unity_api_token: &str, unity_base_
                     let reset_timestamp_utc = reset_timestamp_utc.0 as f32 / 1000f32; // Convert from milliseconds to seconds
                     let now_unix_seconds = Utc::now().timestamp() as u64;
                     let max_requests_per_second = limit_remaining as f32 / ((reset_timestamp_utc - now_unix_seconds as f32) as f32).max(1f32);
-                    let seconds_per_request = (1f32 / max_requests_per_second).max(SLEEP_DURATION as f32);
+                    let seconds_per_request = (1f32 / max_requests_per_second).max(UNITY_SLEEP_DURATION as f32);
                     sleep_duration = seconds_per_request as u64;
 
                     let human_date: DateTime<Utc> = DateTime::from_utc(NaiveDateTime::from_timestamp(reset_timestamp_utc as i64, 0), Utc);
