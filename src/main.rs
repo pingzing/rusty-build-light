@@ -248,11 +248,11 @@ fn run_team_city_loop(mut team_city_led: RgbLedLight, team_city_username: &str, 
                 match status {
                     TeamCityBuildStatus::Success => team_city_led.set_led_rgb_values(RgbLedLight::GREEN),
                     TeamCityBuildStatus::Failure => team_city_led.blink_led(RgbLedLight::RED),
-                    TeamCityBuildStatus::Error => team_city_led.set_led_rgb_values(RgbLedLight::BLUE)
+                    TeamCityBuildStatus::Error => team_city_led.glow_led(RgbLedLight::BLUE)
                 }
             }
             None => {
-                team_city_led.set_led_rgb_values(RgbLedLight::BLUE);
+                team_city_led.glow_led(RgbLedLight::BLUE);
             }
         }
 
