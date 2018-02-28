@@ -133,6 +133,8 @@ fn main() {
 }
 
 fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
+    test_led.turn_led_off();
+    thread::sleep(Duration::from_millis(1000));
     test_led.set_led_rgb_values(RgbLedLight::RED);
     thread::sleep(Duration::from_millis(250));
     test_led.set_led_rgb_values(RgbLedLight::GREEN);
