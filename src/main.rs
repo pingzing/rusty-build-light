@@ -56,7 +56,7 @@ use reqwest::mime;
 use failure::Error;
 use chrono::prelude::*;
 
-const SLEEP_DURATION: u64 = 5000;
+const SLEEP_DURATION: u64 = 10000;
 const UNITY_SLEEP_DURATION: u64 = 1000 * 60;
 
 lazy_static!{
@@ -266,7 +266,7 @@ fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<
                         Ok(job_result.build_result)
                     }                        
                     Err(job_err) => {
-                        warn!("HTTP failure when attempting to get job result for job: {}. Error: {}", &job_url_string, job_err);
+                        warn!("--Jenkins--: HTTP failure when attempting to get job result for job: {}. Error: {}", &job_url_string, job_err);
                         Err(job_err)
                     }
                 }
@@ -274,7 +274,6 @@ fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<
             Ok(results)
         }
         Err(err) => {
-            warn!("Error getting all jobs: {}", err);
             Err(err)
         }
     }
