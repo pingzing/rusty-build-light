@@ -46,11 +46,10 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;
 use std::thread;
-use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use reqwest::{Client, Url, StatusCode};
+use reqwest::{Url, StatusCode};
 use reqwest::header::{Accept, Authorization, Basic, ContentType, Headers, qitem};
 use reqwest::mime;
 use failure::Error;
@@ -240,7 +239,7 @@ fn run_one_jenkins(jenkins_led: &mut RgbLedLight, jenkins_username: &str, jenkin
             info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
         },
         Err(e) => {
-                jenkins_led.glow_led(RgbLedLight::BLUE);
+            jenkins_led.glow_led(RgbLedLight::BLUE);
             warn!("--Jenkins--: Failed to retrieve any jobs from Jenkins. Details: {}", e);
         }
     }                      
@@ -263,7 +262,11 @@ fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<
 
                 match job_response {
                     Ok((job_result, _)) => {
-                        Ok(job_result.build_result)
+                        if job_result.building {
+                            Ok(JenkinsBuildStatus::Building)
+                        } else {
+                            Ok(job_result.build_result.unwrap())
+                        }
                     }                        
                     Err(job_err) => {
                         warn!("--Jenkins--: HTTP failure when attempting to get job result for job: {}. Error: {}", &job_url_string, job_err);
@@ -419,12 +422,12 @@ fn get_unity_status(headers: &Headers, url: &str) -> Result<(UnityBuildStatus, H
                 Ok((unity_http_result.remove(0).build_status, response_headers))
             }
             else {
-                warn!("No builds retrieved from Unity Cloud for URL {}. Aborting...", url);
+                warn!("--Unity--: No builds retrieved from Unity Cloud for URL {}. Aborting...", url);
                 Err(UnityRetrievalError::NoBuildsReturned)
             }
         },
         Err(unity_http_err) => {
-            warn!("Failure getting Unity Cloud build status for url: {}. Error: {}", url, unity_http_err);
+            warn!("--Unity--: Failure getting Unity Cloud build status for url: {}. Error: {}", url, unity_http_err);
             Err(UnityRetrievalError::HttpError{ http_error_message: unity_http_err.to_string() })
         }
     }

@@ -7,18 +7,14 @@ pub struct JenkinsJobResponse {
 pub struct JenkinsJob {
     pub name: String,
     pub url: String,
-    pub color: String
 }
 
 #[derive(Deserialize)]
 pub struct JenkinsBuildResult {
     pub building: bool,
 
-    #[serde(rename = "fullDisplayName")]
-    pub full_display_name: String,
-
     #[serde(rename = "result")]
-    pub build_result: JenkinsBuildStatus
+    pub build_result: Option<JenkinsBuildStatus>
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -28,5 +24,6 @@ pub enum JenkinsBuildStatus {
     Failure,
     NotBuilt,
     Aborted,
-    Unstable        
+    Unstable,
+    Building // Doesn't actually exist in Jenkins, but we do some transformation when returning it to make life simpler
 }

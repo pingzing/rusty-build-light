@@ -158,9 +158,13 @@ Three things are required: an OpenVPN profile with access to the CI servers, aut
 
 ### OpenVPN
  
- * Get profile from Confluence
- * Edit your profile, and add a line that says `auth-user-pass auth.txt`. 
- * Create a file named `auth.txt` in `etc/openvpn` (note: check this, mine went into openvpn/conf.d somewhere). Its contents should just be a.) Your VPN username on the first line and, b.) Your VPN password on the second.
+ * Visit https://confluence.futurice.com/display/usup/How+to+use+VPN to learn how to obtain a Futurice VPN certificate. 
+ * Log into the VPN service as `finavia-vpn`. The password for this user can be found in the [password safe](https://password.futurice.com/).
+ * Transfer the `.ovpn` file to the Raspberry Pi, and place it in `/etc/openvpn`.
+ * Rename the `.ovpn` file to a `.conf`. 
+ * Open the new `.conf` file, and add the line `auth-user-pass auth.txt` near the top.
+ * Create a file named `auth.txt` in `etc/openvpn`. Its contents should just be a.) Your VPN username on the first line and, b.) Your VPN password on the second.
+ * Go to `/etc/default`, and open the `openvpn` file. Uncomment (or add, if missing) a line that says `AUTOSTART="all"`.
 
  Done!
 
