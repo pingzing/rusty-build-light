@@ -194,7 +194,7 @@ Done!
 
 If we're using Raspbian "Jessie" or later, we can use systemd. If you're using something earlier...Google it, I dunno.
 
-To create a new systemd service, create a file named `rusty-build-startup.service` in `/lib/systemd/system`. Its contents will need to look something like the following:
+To create a new systemd service, create a file named `build-light.service` in `/lib/systemd/system`. Its contents will need to look something like the following:
 
 ```ini
 [Unit]
