@@ -211,8 +211,8 @@ WantedBy=multi-user.target
 Then, register and start the service:
 
 ```bash
-$ sudo systemctl enable rusty-build-startup.service
-$ sudo systemctl start rusty-build-startup.service
+$ sudo systemctl enable build-light.service
+$ sudo systemctl start build-light.service
 ```
 
 ## Running and Configuring the Build Light
