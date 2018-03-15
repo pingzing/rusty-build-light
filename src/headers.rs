@@ -2,4 +2,4 @@
 header! {(XRateLimitRemaining, "X-RateLimit-Remaining") => [u32]}
 
 // when window will reset in epoch seconds
-header! {(XRateLimitReset, "X-RateLimit-Reset") => [u64]} 
+header! {(XRateLimitReset, "X-RateLimit-Reset") => [u64]}
