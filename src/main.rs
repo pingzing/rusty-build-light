@@ -48,6 +48,7 @@ use std::time::Duration;
 use std::thread;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::panic;
 
 use reqwest::{Url, StatusCode};
 use reqwest::header::{Accept, Authorization, Basic, ContentType, Headers, qitem};
@@ -119,47 +120,37 @@ fn main() {
             let team_city_running_flag = is_running_flag.clone();
             let (team_city_r, team_city_g, team_city_b) = (config_values.team_city_led_pins[0], config_values.team_city_led_pins[1], config_values.team_city_led_pins[2]);
 
-            // Init various check-status loops
-            let jenkins_handle = thread::spawn(move || {                
-                let mut jenkins_led = RgbLedLight::new(jenkins_r, jenkins_g, jenkins_b);
-                run_power_on_test(&mut jenkins_led);
-                loop {    
-                    run_one_jenkins(&mut jenkins_led, jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str());
-                    if !jenkins_running_flag.load(Ordering::SeqCst) {
-                        jenkins_led.glow_led(RgbLedLight::WHITE);
-                        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
-                        jenkins_led.turn_led_off();
-                        return;
-                    }
+            // Init main threads
+            let jenkins_handle = thread::spawn(move || {
+                while let Err(crash_err) = panic::catch_unwind(|| {
+                    // Initial run
+                    start_jenkins_thread(jenkins_r, jenkins_g, jenkins_b, jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str(), jenkins_running_flag.clone());
+                }) {
+                    // Error recovery runs
+                    error!("The Jenkins thread crashed: {:?}. Restarting it...", crash_err);
+                    start_jenkins_thread(jenkins_r, jenkins_g, jenkins_b, jenkins_username.as_str(), jenkins_password.as_str(), jenkins_base_url.as_str(), jenkins_running_flag.clone());
                 }
             });
 
             let unity_cloud_handle = thread::spawn(move || {                
-                let mut unity_led = RgbLedLight::new(unity_r, unity_g, unity_b);
-                run_power_on_test(&mut unity_led);
-                let mut sleep_duration = UNITY_SLEEP_DURATION;
-                loop {
-                    sleep_duration = run_one_unity(&mut unity_led, unity_api_token.as_str(), unity_base_url.as_str(), sleep_duration);
-                    if !unity_running_flag.load(Ordering::SeqCst) {
-                        unity_led.glow_led(RgbLedLight::WHITE);
-                        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
-                        unity_led.turn_led_off();
-                        return;
-                    }
+                while let Err(crash_err) = panic::catch_unwind(|| {
+                    // Initial run
+                    start_unity_thread(unity_r, unity_g, unity_b, unity_api_token.as_str(), unity_base_url.as_str(), unity_running_flag.clone());
+                }) {
+                    // Error recovery runs
+                    error!("The Unity Cloud build thread crashed: {:?}. Restarting it...", crash_err);
+                    start_unity_thread(unity_r, unity_g, unity_b, unity_api_token.as_str(), unity_base_url.as_str(), unity_running_flag.clone());
                 }
             });
 
             let team_city_handle = thread::spawn(move || {                
-                let mut team_city_led = RgbLedLight::new(team_city_r, team_city_g, team_city_b);
-                run_power_on_test(&mut team_city_led);
-                loop {
-                    run_one_team_city(&mut team_city_led, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str());                    
-                    if !team_city_running_flag.load(Ordering::SeqCst) {
-                        team_city_led.glow_led(RgbLedLight::WHITE);
-                        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
-                        team_city_led.turn_led_off();
-                        return;
-                    }
+                while let Err(crash_err) = panic::catch_unwind(|| {
+                    // Initial run
+                    start_team_city_thread(team_city_r, team_city_g, team_city_b, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str(), team_city_running_flag.clone());
+                }) {
+                    // Error recovery runs
+                    error!("The Team City thread crashed: {:?}. Restarting it...", crash_err);
+                    start_team_city_thread(team_city_r, team_city_g, team_city_b, team_city_username.as_str(), team_city_password.as_str(), team_city_base_url.as_str(), team_city_running_flag.clone());
                 }
             });
 
@@ -192,6 +183,20 @@ fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
     test_led.turn_led_off();
 
     test_led.glow_led(RgbLedLight::TEAL);    
+}
+
+fn start_jenkins_thread(r: u16, g: u16, b: u16, jenkins_username: &str, jenkins_password: &str, jenkins_base_url: &str, running_flag: Arc<AtomicBool>) {
+    let mut jenkins_led = RgbLedLight::new(r, g, b);
+    run_power_on_test(&mut jenkins_led);
+    loop {    
+        run_one_jenkins(&mut jenkins_led, jenkins_username, jenkins_password, jenkins_base_url);
+        if !running_flag.load(Ordering::SeqCst) {
+            jenkins_led.glow_led(RgbLedLight::WHITE);
+            thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+            jenkins_led.turn_led_off();
+            return;
+        }
+    }
 }
 
 fn run_one_jenkins(jenkins_led: &mut RgbLedLight, jenkins_username: &str, jenkins_password: &str, jenkins_base_url: &str) {    
@@ -282,6 +287,20 @@ fn get_jenkins_status(username: &str, password: &str, base_url: &str) -> Result<
     }
 }
 
+fn start_team_city_thread(r: u16, g: u16, b: u16, team_city_username: &str, team_city_password: &str, team_city_base_url: &str, running_flag: Arc<AtomicBool>) {
+    let mut team_city_led = RgbLedLight::new(r, g, b);
+    run_power_on_test(&mut team_city_led);
+    loop {
+        run_one_team_city(&mut team_city_led, team_city_username, team_city_password, team_city_base_url);                    
+        if !running_flag.load(Ordering::SeqCst) {
+            team_city_led.glow_led(RgbLedLight::WHITE);
+            thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+            team_city_led.turn_led_off();
+            return;
+        }
+    }
+}
+
 fn run_one_team_city(team_city_led: &mut RgbLedLight, team_city_username: &str, team_city_password: &str, team_city_base_url: &str) {        
     let team_city_status = get_team_city_status(team_city_username, 
                                                 team_city_password, 
@@ -321,6 +340,21 @@ fn get_team_city_status(username: &str, password: &str, base_url: &str) -> Optio
         Err(team_city_network_err) => {
             warn!("--Team City--: Failed to get build status: {}", team_city_network_err);
             None
+        }
+    }
+}
+
+fn start_unity_thread(r: u16, g: u16, b: u16, unity_api_token: &str, unity_base_url: &str, running_flag: Arc<AtomicBool>) {
+    let mut unity_led = RgbLedLight::new(r, g, b);
+    run_power_on_test(&mut unity_led);
+    let mut sleep_duration = UNITY_SLEEP_DURATION;
+    loop {
+        sleep_duration = run_one_unity(&mut unity_led, unity_api_token, unity_base_url, sleep_duration);
+        if !running_flag.load(Ordering::SeqCst) {
+            unity_led.glow_led(RgbLedLight::WHITE);
+            thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+            unity_led.turn_led_off();
+            return;
         }
     }
 }
@@ -407,14 +441,14 @@ fn get_unity_cloud_status(api_token: &str, base_url: &str) -> Vec<Result<(UnityB
     headers.set(ContentType::json());
 
     let ios_url = format!("{base}/buildtargets/ios-development/builds?per_page=1", base=base_url);    
-    let ios_build_response = get_unity_status(&headers, ios_url.as_str());
+    let ios_build_response = get_unity_platform_status(&headers, ios_url.as_str());
 
     let android_url = format!("{base}/buildtargets/android-development/builds?per_page=1", base=base_url);
-    let android_build_response = get_unity_status(&headers, android_url.as_str());
+    let android_build_response = get_unity_platform_status(&headers, android_url.as_str());
     vec!(ios_build_response, android_build_response)
 }
 
-fn get_unity_status(headers: &Headers, url: &str) -> Result<(UnityBuildStatus, Headers), UnityRetrievalError> {    
+fn get_unity_platform_status(headers: &Headers, url: &str) -> Result<(UnityBuildStatus, Headers), UnityRetrievalError> {    
     let unity_build_response: Result<(Vec<UnityBuild>, Headers), Error> = get_url_response(&url, headers.clone());
     match unity_build_response {
         Ok((mut unity_http_result, response_headers)) => {
