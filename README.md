@@ -194,7 +194,7 @@ Done!
 
 If we're using Raspbian "Jessie" or later, we can use systemd. If you're using something earlier...Google it, I dunno.
 
-To create a new systemd service, create a file named `rusty-build-startup.service` in `/lib/systemd/system`. Its contents will need to look something like the following:
+To create a new systemd service, create a file named `build-light.service` in `/lib/systemd/system`. Its contents will need to look something like the following:
 
 ```ini
 [Unit]
@@ -203,6 +203,8 @@ Description=The Finavia Project build light.
 [Service]
 ExecStart=/bin/bash -c /absolute/path/to/the/rusty/build/light/executable
 WorkingDirectory=/absolute/path/to/directory/containing/rusty/build/light/and/its/config/files
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -214,6 +216,8 @@ Then, register and start the service:
 $ sudo systemctl enable rusty-build-startup.service
 $ sudo systemctl start rusty-build-startup.service
 ```
+
+The build light can now be entirely controlled by `systemctl`, and its system-level logs can be viewed with `journalctl -u build-light.service`.
 
 ## Running and Configuring the Build Light
 
