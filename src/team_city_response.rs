@@ -1,6 +1,6 @@
 #[derive(Deserialize)]
 pub struct TeamCityResponse {
-    pub status: TeamCityBuildStatus
+    pub status: TeamCityBuildStatus,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -8,5 +8,5 @@ pub struct TeamCityResponse {
 pub enum TeamCityBuildStatus {
     Success,
     Failure,
-    Error
+    Error,
 }

@@ -213,8 +213,8 @@ WantedBy=multi-user.target
 Then, register and start the service:
 
 ```bash
-$ sudo systemctl enable rusty-build-startup.service
-$ sudo systemctl start rusty-build-startup.service
+$ sudo systemctl enable build-light.service
+$ sudo systemctl start build-light.service
 ```
 
 The build light can now be entirely controlled by `systemctl`, and its system-level logs can be viewed with `journalctl -u build-light.service`.

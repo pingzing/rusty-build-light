@@ -1,8 +1,7 @@
-
 #[derive(Deserialize)]
-pub struct UnityBuild {    
+pub struct UnityBuild {
     #[serde(rename = "buildStatus")]
-    pub build_status: UnityBuildStatus
+    pub build_status: UnityBuildStatus,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -15,5 +14,5 @@ pub enum UnityBuildStatus {
     Success,
     Failure,
     Canceled,
-    Unknown
+    Unknown,
 }

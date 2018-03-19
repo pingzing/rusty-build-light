@@ -1,6 +1,6 @@
 #[derive(Deserialize)]
 pub struct JenkinsJobResponse {
-    pub jobs: Vec<JenkinsJob>
+    pub jobs: Vec<JenkinsJob>,
 }
 
 #[derive(Deserialize)]
@@ -14,7 +14,7 @@ pub struct JenkinsBuildResult {
     pub building: bool,
 
     #[serde(rename = "result")]
-    pub build_result: Option<JenkinsBuildStatus>
+    pub build_result: Option<JenkinsBuildStatus>,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -25,5 +25,5 @@ pub enum JenkinsBuildStatus {
     NotBuilt,
     Aborted,
     Unstable,
-    Building // Doesn't actually exist in Jenkins, but we do some transformation when returning it to make life simpler
+    Building, // Doesn't actually exist in Jenkins, but we do some transformation when returning it to make life simpler
 }
