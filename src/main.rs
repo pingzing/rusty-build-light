@@ -134,91 +134,41 @@ fn main() {
 
             // Init main threads
             let jenkins_handle = thread::spawn(move || {
-                while let Err(crash_err) = panic::catch_unwind(|| {
-                    // Initial run
-                    start_jenkins_thread(
+               run_and_recover("Jenkins", || {
+                   start_jenkins_thread(
                         jenkins_r,
                         jenkins_g,
                         jenkins_b,
                         jenkins_username.as_str(),
                         jenkins_password.as_str(),
                         jenkins_base_url.as_str(),
-                        jenkins_running_flag.clone(),
-                    );
-                }) {
-                    // Error recovery runs
-                    error!(
-                        "The Jenkins thread crashed: {:?}. Restarting it...",
-                        crash_err
-                    );
-                    start_jenkins_thread(
-                        jenkins_r,
-                        jenkins_g,
-                        jenkins_b,
-                        jenkins_username.as_str(),
-                        jenkins_password.as_str(),
-                        jenkins_base_url.as_str(),
-                        jenkins_running_flag.clone(),
-                    );
-                }
+                        jenkins_running_flag.clone())
+               })
             });
 
             let unity_cloud_handle = thread::spawn(move || {
-                while let Err(crash_err) = panic::catch_unwind(|| {
-                    // Initial run
-                    start_unity_thread(
+                run_and_recover("Unity Cloud", || {
+                     start_unity_thread(
                         unity_r,
                         unity_g,
                         unity_b,
                         unity_api_token.as_str(),
                         unity_base_url.as_str(),
-                        unity_running_flag.clone(),
-                    );
-                }) {
-                    // Error recovery runs
-                    error!(
-                        "The Unity Cloud build thread crashed: {:?}. Restarting it...",
-                        crash_err
-                    );
-                    start_unity_thread(
-                        unity_r,
-                        unity_g,
-                        unity_b,
-                        unity_api_token.as_str(),
-                        unity_base_url.as_str(),
-                        unity_running_flag.clone(),
-                    );
-                }
+                        unity_running_flag.clone())                                
+                })
             });
 
-            let team_city_handle = thread::spawn(move || {
-                while let Err(crash_err) = panic::catch_unwind(|| {
-                    // Initial run
-                    start_team_city_thread(
+            let team_city_handle = thread::spawn(move || {                
+                run_and_recover("Team City", || {
+                  start_team_city_thread(
                         team_city_r,
                         team_city_g,
                         team_city_b,
                         team_city_username.as_str(),
                         team_city_password.as_str(),
                         team_city_base_url.as_str(),
-                        team_city_running_flag.clone(),
-                    );
-                }) {
-                    // Error recovery runs
-                    error!(
-                        "The Team City thread crashed: {:?}. Restarting it...",
-                        crash_err
-                    );
-                    start_team_city_thread(
-                        team_city_r,
-                        team_city_g,
-                        team_city_b,
-                        team_city_username.as_str(),
-                        team_city_password.as_str(),
-                        team_city_base_url.as_str(),
-                        team_city_running_flag.clone(),
-                    );
-                }
+                        team_city_running_flag.clone())  
+                })                
             });
 
             // Wait for all three main threads to finish.
@@ -230,6 +180,20 @@ fn main() {
         }
         Err(e) => {
             error!("Failed to obtain current executable directory. Details: {}. Exiting...", e);
+        }
+    }
+}
+
+fn run_and_recover<F: Fn() -> R + panic::UnwindSafe + panic::RefUnwindSafe, R>(thread_name: &str, func: F) -> thread::Result<R> {
+    loop {
+        let thread_result = panic::catch_unwind(|| {
+            func()
+        });
+        if thread_result.is_ok() {
+            println!("Thread {} terminated gracefully. Ending...", thread_name);
+            return thread_result;
+        } else {
+            println!("Thread {} terminated abnormally. Restarting...", thread_name);
         }
     }
 }
