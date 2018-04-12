@@ -24,6 +24,7 @@ impl RgbLedLight {
     pub const TEAL: (i32, i32, i32) = (0, 100, 100);
     pub const YELLOW: (i32, i32, i32) = (100, 100, 0);
     pub const WHITE: (i32, i32, i32) = (100, 100, 00);
+    pub const PURPLE: (i32, i32, i32) = (100, 0, 100);
 
     pub fn new(red: u16, green: u16, blue: u16) -> RgbLedLight {
         RgbLedLight {

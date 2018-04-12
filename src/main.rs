@@ -213,7 +213,7 @@ fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
     thread::sleep(Duration::from_millis(250));
     test_led.turn_led_off();
 
-    test_led.glow_led(RgbLedLight::TEAL);
+    test_led.glow_led(RgbLedLight::PURPLE);
 }
 
 fn start_jenkins_thread(
@@ -258,12 +258,17 @@ fn run_one_jenkins(
 
             let retrieved: Vec<JenkinsBuildStatus> =
                 retrieved.into_iter().map(|x| x.unwrap()).collect();
+            
             let retrieved_count = retrieved.len();
             let not_retrieved_count = not_retrieved.len();
             let build_failures = *(&retrieved
                 .iter()
-                .filter(|x| **x != JenkinsBuildStatus::Success)
+                .filter(|x| **x == JenkinsBuildStatus::Failure)
                 .count());
+            let indeterminate_count = *(&retrieved
+                .iter()
+                .filter(|x| **x != JenkinsBuildStatus::Failure && **x != JenkinsBuildStatus::Success)
+                .count()) + not_retrieved_count;
             let build_successes = *(&retrieved
                 .iter()
                 .filter(|x| **x == JenkinsBuildStatus::Success)
@@ -271,8 +276,8 @@ fn run_one_jenkins(
 
             // Failure states: NONE of the builds succeeded.
             if build_successes <= 0 {
-                if not_retrieved_count > build_failures || build_failures == 0 {
-                    // Glow blue if we fail to retrieve the majority, or if we have no success AND no failures
+                if indeterminate_count > build_failures || build_failures == 0 {
+                    // Glow blue if the majority of statuses are indeterminate, or if we have no success AND no failures
                     jenkins_led.glow_led(RgbLedLight::BLUE);
                 } else {
                     jenkins_led.blink_led(RgbLedLight::RED);
@@ -281,15 +286,24 @@ fn run_one_jenkins(
             // Success, or partial success states: at least SOME builds succeeded.
             else {
                 if build_failures == 0 {
-                    jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
+                    // No failures, and more successes than indeterminates
+                    if build_successes > indeterminate_count {
+                        jenkins_led.set_led_rgb_values(RgbLedLight::GREEN);
+                    }
+                    // No failures, but more indeterminates that successes.
+                    else {
+                        jenkins_led.glow_led(RgbLedLight::TEAL);
+                    }
+                // Some failures, but more successes than failures
                 } else if build_successes > build_failures {
                     jenkins_led.glow_led(RgbLedLight::GREEN);
+                // Many failures, more than successes.
                 } else {
                     jenkins_led.blink_led(RgbLedLight::RED);
                 }
             }
 
-            info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, and {} failed.", retrieved_count, not_retrieved_count, build_successes, build_failures);
+            info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, {} failed, and {} were indeterminate.", retrieved_count, not_retrieved_count, build_successes, build_failures, indeterminate_count);
         }
         Err(e) => {
             jenkins_led.glow_led(RgbLedLight::BLUE);
@@ -322,6 +336,8 @@ fn get_jenkins_status(
             let results = result
                 .jobs
                 .iter()
+                .filter(|job| job.color != JenkinsJobColor::Disabled
+                                && job.color != JenkinsJobColor::DisabledAnime)
                 .map(|job| {
                     let job_url_string = format!(
                         "{base}/job/{job}/lastBuild/api/json",
@@ -333,12 +349,13 @@ fn get_jenkins_status(
                         Error,
                     > = get_url_response(&job_url_string, auth_headers.clone());
 
-                    match job_response {
+                    match job_response {                        
                         Ok((job_result, _)) => {
-                            if job_result.building {
+                            if job_result.building {                                
                                 Ok(JenkinsBuildStatus::Building)
                             } else {
-                                Ok(job_result.build_result.unwrap())
+                                let unwrapped_result = job_result.build_result.unwrap();                                
+                                Ok(unwrapped_result)
                             }
                         }
                         Err(job_err) => {
@@ -479,7 +496,7 @@ fn run_one_unity(
         not_retrieved.into_iter().map(|x| x.unwrap_err()).collect();
 
     if not_retrieved_results.len() > 0 {
-        info!("--Unity--: At least one result no retrieved.");
+        info!("--Unity--: At least one result not retrieved.");
         unity_led.glow_led(RgbLedLight::BLUE);
     } else {
         let passing_builds = *(&retrieved_results
@@ -513,12 +530,12 @@ fn run_one_unity(
         // Both failing and passing
         else if passing_builds > 0 && failing_builds > 0 {
             info!("--Unity--: At least one failing AND passing.");
-            unity_led.glow_led(RgbLedLight::GREEN);
+            unity_led.glow_led(RgbLedLight::TEAL);
         }
         // ?????
         else {
-            info!("--Unity--: Default case. Glowing white.");
-            unity_led.glow_led(RgbLedLight::WHITE);
+            info!("--Unity--: Unknown state.");
+            unity_led.glow_led(RgbLedLight::PURPLE);
         }
 
         info!(
@@ -539,21 +556,10 @@ fn run_one_unity(
                 let max_requests_per_second = limit_remaining as f32 / ((reset_timestamp_utc - now_unix_seconds as f32) as f32).max(1f32);
                 let seconds_per_request = (1f32 / max_requests_per_second).max(UNITY_SLEEP_DURATION as f32);
                 sleep_duration = seconds_per_request as u64;
-
-                let human_date: DateTime<Utc> = DateTime::from_utc(
-                    NaiveDateTime::from_timestamp(reset_timestamp_utc as i64, 0),
-                    Utc,
-                );
-                info!("--Unity--: Readjusting sleep duration per iteration to {}. RateLimit-Remaining was: {}. Reset-Timestamp was: {}. Will reset at: {}", 
-                    sleep_duration,
-                    limit_remaining,
-                    reset_timestamp_utc,
-                    human_date);
             }
         }
     }
-
-    // todo: Add a check for what our allowed requests per minute, and adjust sleep duration as necessary.
+    
     thread::sleep(Duration::from_millis(sleep_duration));
     sleep_duration
 }
