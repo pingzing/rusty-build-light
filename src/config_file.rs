@@ -1,5 +1,7 @@
 #[derive(Deserialize)]
 pub struct Config {
+    pub allowed_failures: u32,
+
     pub jenkins_username: String,
     pub jenkins_password: String,
     pub jenkins_base_url: String,

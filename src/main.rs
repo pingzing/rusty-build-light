@@ -47,7 +47,7 @@ use std::io::prelude::*;
 use std::time::Duration;
 use std::thread;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::panic;
 
 use reqwest::{StatusCode, Url};
@@ -74,6 +74,7 @@ fn main() {
         panic!("Aborting...");
     });
 
+    let failure_count = Arc::new(Mutex::new(0u32));
     match std::env::current_exe() {
         Ok(path) => {
             // Init logging
@@ -132,9 +133,11 @@ fn main() {
                 config_values.team_city_led_pins[2],
             );
 
+            let allowed_total_failures = config_values.allowed_failures;
             // Init main threads
+            let jenkins_counter = Arc::clone(&failure_count);
             let jenkins_handle = thread::spawn(move || {
-               run_and_recover("Jenkins", || {
+               run_and_recover("Jenkins", allowed_total_failures, jenkins_counter, jenkins_running_flag.clone(), || {
                    start_jenkins_thread(
                         jenkins_r,
                         jenkins_g,
@@ -146,8 +149,9 @@ fn main() {
                })
             });
 
+            let unity_cloud_counter = Arc::clone(&failure_count);
             let unity_cloud_handle = thread::spawn(move || {
-                run_and_recover("Unity Cloud", || {
+                run_and_recover("Unity Cloud", allowed_total_failures, unity_cloud_counter, unity_running_flag.clone(), || {
                      start_unity_thread(
                         unity_r,
                         unity_g,
@@ -158,8 +162,9 @@ fn main() {
                 })
             });
 
+            let team_city_counter = Arc::clone(&failure_count);
             let team_city_handle = thread::spawn(move || {                
-                run_and_recover("Team City", || {
+                run_and_recover("Team City", allowed_total_failures, team_city_counter, team_city_running_flag.clone(), || {
                   start_team_city_thread(
                         team_city_r,
                         team_city_g,
@@ -184,16 +189,35 @@ fn main() {
     }
 }
 
-fn run_and_recover<F: Fn() -> R + panic::UnwindSafe + panic::RefUnwindSafe, R>(thread_name: &str, func: F) -> thread::Result<R> {
+fn run_and_recover<F: Fn() -> R + panic::UnwindSafe + panic::RefUnwindSafe, R>(
+    thread_name: &str, 
+    allowed_total_failures: u32,
+    failure_counter: Arc<Mutex<u32>>,
+    running_flag: Arc<AtomicBool>,
+    func: F
+) -> thread::Result<R> 
+where R: std::fmt::Debug {
     loop {
+        if let Ok(counter) = failure_counter.lock() {
+            if *counter > allowed_total_failures {
+                running_flag.store(false, Ordering::SeqCst); // Force a global stop                
+                return Result::Err(Box::new(format!("Failure count for {} exceeded, forcing stop.", thread_name)));
+            }
+        }
         let thread_result = panic::catch_unwind(|| {
             func()
         });
         if thread_result.is_ok() {
-            println!("Thread {} terminated gracefully. Ending...", thread_name);
+            info!("Thread {} terminated gracefully. Ending...", thread_name);
             return thread_result;
         } else {
-            println!("Thread {} terminated abnormally. Restarting...", thread_name);
+            error!("Thread {} terminated abnormally. Details: {:?}. Restarting...", thread_name, thread_result);
+            if let Ok(mut counter) = failure_counter.lock() {
+                *counter += 1;
+            }
+            else {
+                error!("Attempted to increment failure count for thread {}, but failed to acquire a lock on the counter.", thread_name);
+            }
         }
     }
 }
@@ -263,11 +287,13 @@ fn run_one_jenkins(
             let not_retrieved_count = not_retrieved.len();
             let build_failures = *(&retrieved
                 .iter()
-                .filter(|x| **x == JenkinsBuildStatus::Failure)
+                .filter(|x| **x == JenkinsBuildStatus::Failure || **x == JenkinsBuildStatus::Unstable)
                 .count());
             let indeterminate_count = *(&retrieved
                 .iter()
-                .filter(|x| **x != JenkinsBuildStatus::Failure && **x != JenkinsBuildStatus::Success)
+                .filter(|x| **x != JenkinsBuildStatus::Failure 
+                            && **x != JenkinsBuildStatus::Unstable 
+                            && **x != JenkinsBuildStatus::Success)
                 .count()) + not_retrieved_count;
             let build_successes = *(&retrieved
                 .iter()
