@@ -322,7 +322,7 @@ fn run_one_jenkins(
                     }
                 // Some failures, but more successes than failures
                 } else if build_successes > build_failures {
-                    jenkins_led.glow_led(RgbLedLight::GREEN);
+                    jenkins_led.glow_led(RgbLedLight::YELLOW);
                 // Many failures, more than successes.
                 } else {
                     jenkins_led.blink_led(RgbLedLight::RED);

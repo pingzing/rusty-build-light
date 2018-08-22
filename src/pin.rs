@@ -22,7 +22,7 @@ impl RgbLedLight {
     pub const GREEN: (i32, i32, i32) = (0, 100, 0);
     pub const BLUE: (i32, i32, i32) = (0, 0, 100);
     pub const TEAL: (i32, i32, i32) = (0, 100, 100);
-    pub const YELLOW: (i32, i32, i32) = (100, 100, 0);
+    pub const YELLOW: (i32, i32, i32) = (100, 75, 0);
     pub const WHITE: (i32, i32, i32) = (100, 100, 00);
     pub const PURPLE: (i32, i32, i32) = (100, 0, 100);
 
