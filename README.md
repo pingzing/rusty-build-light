@@ -1,5 +1,5 @@
 # Rusty Build Light
-It's a build light for Raspberry Pi. In Rust! Designed for the Finavia projecte, and set up to talk to its Jenkins, Team City and Unity Cloud CI pipelines.
+It's a build light for Raspberry Pi. In Rust! Designed for the Finavia project, and set up to talk to its Jenkins, Team City and Unity Cloud CI pipelines.
 
 * [Requirements](#requirements)
 * [Building locally](#building-locally)
