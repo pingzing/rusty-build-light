@@ -1,6 +1,6 @@
 use RemoteIntegration;
 use RgbLedLight;
-use jenkins_response::*;
+use integrations::jenkins_response::*;
 use failure::Error;
 use reqwest::header::{Authorization, Headers};
 use network::{get_basic_credentials, get_url_response};
@@ -79,6 +79,18 @@ impl JenkinsIntegration {
 }
 
 impl RemoteIntegration for JenkinsIntegration {
+    fn get_red_id(&self) -> u16 {
+        self.r
+    }
+
+    fn get_green_id(&self) -> u16 {
+        self.g
+    }
+
+    fn get_blue_id(&self) -> u16 {
+        self.b
+    }
+
     fn update_led(&self, led: &mut RgbLedLight) {
         match self.get_status() {
             Ok(results) => {
