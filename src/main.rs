@@ -1,3 +1,11 @@
+mod network;
+
+mod remote_integration;
+use remote_integration::RemoteIntegration;
+
+mod jenkins_integration;
+use jenkins_integration::*;
+
 mod config_file;
 use config_file::*;
 
@@ -238,6 +246,20 @@ fn run_power_on_test(test_led: &mut pin::RgbLedLight) {
     test_led.turn_led_off();
 
     test_led.glow_led(RgbLedLight::PURPLE);
+}
+
+fn start_thread<T: RemoteIntegration>(r: u16, g: u16, b: u16, remote: T, running_flag: Arc<AtomicBool>) {
+    let mut led = RgbLedLight::new(r, g, b);
+    run_power_on_test(&mut led);
+    loop {
+        remote.update_led(&mut led);
+    }
+    if !running_flag.load(Ordering::SeqCst) {
+        led.glow_led(RgbLedLight::WHITE);
+        thread::sleep(Duration::from_millis(1400)); // Should be long enough for a single "glow on -> glow off" cycle
+        led.turn_led_off();
+        return;
+    }
 }
 
 fn start_jenkins_thread(

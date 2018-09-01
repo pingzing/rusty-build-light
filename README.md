@@ -170,14 +170,7 @@ Three things are required: an OpenVPN profile with access to the CI servers, aut
 
 ### Wi-Fi
 
-* Ensure that the first line of `etc/network/interfaces` is `auto wlan0` (or replace "wlan0" with the name of your Wi-Fi interface).
-* Add the following to the bottom of the file:
-```bash
-allow-hotplug wlan0
-iface wlan0 inet dhcp
-wpa-conf /etc/wpa_supplicant/wpa_supplicant.conf
-iface default inet dhcp
-```
+* Something something dhcpcd. The old info here was wrong, need to check how the airport Pi is set up.
 * Now, we need to create `wpa_supplicant.conf`. Create it at `/etc/wpa_supplicant/wpa_supplicant.conf`. 
 * Your `wpa_supplicant.conf` entry will _most likely_ need to look something like the following for your network:
 ```bash
@@ -218,6 +211,14 @@ $ sudo systemctl start build-light.service
 ```
 
 The build light can now be entirely controlled by `systemctl`, and its system-level logs can be viewed with `journalctl -u build-light.service`.
+
+### Autostarting Chromium to go to Azure on boot
+
+Go to `/home/pi/.config/lxsession/LXDE-pi`, and add the following line:
+
+```ini
+@/usr/bin/chromium-browser --disable-restore-session-state https://portal.azure.com
+```
 
 ## Running and Configuring the Build Light
 
