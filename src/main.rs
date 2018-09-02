@@ -1,11 +1,11 @@
-mod network;
 mod errors;
 mod headers;
+mod network;
 
 mod integrations;
-use integrations::remote_integration::{RemoteIntegration};
-use integrations::jenkins_integration::{JenkinsIntegration};
-use integrations::unity_cloud_integration::{UnityCloudIntegration};
+use integrations::jenkins_integration::JenkinsIntegration;
+use integrations::remote_integration::RemoteIntegration;
+use integrations::unity_cloud_integration::UnityCloudIntegration;
 
 mod remote_status;
 use remote_status::RemoteStatus;
@@ -42,15 +42,15 @@ extern crate wiringpi;
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::time::Duration;
-use std::thread;
+use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::panic;
+use std::thread;
+use std::time::Duration;
 
 const SLEEP_DURATION: u64 = 10000;
 
-lazy_static!{
+lazy_static! {
     static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();
 }
 
@@ -69,7 +69,7 @@ fn main() {
     match std::env::current_exe() {
         Ok(path) => {
             // Init logging
-            let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());                
+            let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());
             log_config_file_path.push("log4rs.yml");
             println!("Looking for log config file at: {:?}", log_config_file_path);
             log4rs::init_file(log_config_file_path, Default::default()).unwrap();
@@ -116,79 +116,99 @@ fn main() {
 
             let allowed_total_failures = config_values.allowed_failures;
 
-            // Init main threads            
+            // Init main threads
             let jenkins_counter = Arc::clone(&failure_count);
-            let jenkins_handle = thread::spawn(move || {                
-               run_and_recover("Jenkins", allowed_total_failures, jenkins_counter, jenkins_running_flag.clone(), || {
-                   let jenkins_integration = JenkinsIntegration::new(
-                        jenkins_r,
-                        jenkins_g,
-                        jenkins_b,
-                        &jenkins_username,
-                        &jenkins_password,
-                        &jenkins_base_url,
-                    );
-                   start_thread(
-                        jenkins_integration,
-                        jenkins_running_flag.clone())
-               })
+            let jenkins_handle = thread::spawn(move || {
+                run_and_recover(
+                    "Jenkins",
+                    allowed_total_failures,
+                    jenkins_counter,
+                    jenkins_running_flag.clone(),
+                    || {
+                        let jenkins_integration = JenkinsIntegration::new(
+                            jenkins_r,
+                            jenkins_g,
+                            jenkins_b,
+                            &jenkins_username,
+                            &jenkins_password,
+                            &jenkins_base_url,
+                        );
+                        start_thread(jenkins_integration, jenkins_running_flag.clone())
+                    },
+                )
             });
 
             let unity_cloud_counter = Arc::clone(&failure_count);
             let unity_cloud_handle = thread::spawn(move || {
-                run_and_recover("Unity Cloud", allowed_total_failures, unity_cloud_counter, unity_running_flag.clone(), || {
-                    let unity_cloud_integration = UnityCloudIntegration::new(
-                        unity_r,
-                        unity_g,
-                        unity_b,
-                        &unity_api_token,
-                        &unity_base_url                
-                    );
-                     start_thread(
-                        unity_cloud_integration,
-                        unity_running_flag.clone())                                
-                })
-            });            
+                run_and_recover(
+                    "Unity Cloud",
+                    allowed_total_failures,
+                    unity_cloud_counter,
+                    unity_running_flag.clone(),
+                    || {
+                        let unity_cloud_integration = UnityCloudIntegration::new(
+                            unity_r,
+                            unity_g,
+                            unity_b,
+                            &unity_api_token,
+                            &unity_base_url,
+                        );
+                        start_thread(unity_cloud_integration, unity_running_flag.clone())
+                    },
+                )
+            });
 
             // Wait for all main threads to finish.
-            jenkins_handle.join().expect("The Jenkins thread terminated abnormally.");
-            unity_cloud_handle.join().expect("The Unity Cloud build thread terminated abnormally.");
+            jenkins_handle
+                .join()
+                .expect("The Jenkins thread terminated abnormally.");
+            unity_cloud_handle
+                .join()
+                .expect("The Unity Cloud build thread terminated abnormally.");
 
             info!("All threads terminated. Terminating program...");
         }
         Err(e) => {
-            error!("Failed to obtain current executable directory. Details: {}. Exiting...", e);
+            error!(
+                "Failed to obtain current executable directory. Details: {}. Exiting...",
+                e
+            );
         }
     }
 }
 
 fn run_and_recover<F: Fn() -> R + panic::UnwindSafe + panic::RefUnwindSafe, R>(
-    thread_name: &str, 
+    thread_name: &str,
     allowed_total_failures: u32,
     failure_counter: Arc<Mutex<u32>>,
     running_flag: Arc<AtomicBool>,
-    func: F
-) -> thread::Result<R> 
-where R: std::fmt::Debug {
+    func: F,
+) -> thread::Result<R>
+where
+    R: std::fmt::Debug,
+{
     loop {
         if let Ok(counter) = failure_counter.lock() {
             if *counter > allowed_total_failures {
-                running_flag.store(false, Ordering::SeqCst); // Force a global stop                
-                return Result::Err(Box::new(format!("Failure count for {} exceeded, forcing stop.", thread_name)));
+                running_flag.store(false, Ordering::SeqCst); // Force a global stop
+                return Result::Err(Box::new(format!(
+                    "Failure count for {} exceeded, forcing stop.",
+                    thread_name
+                )));
             }
         }
-        let thread_result = panic::catch_unwind(|| {
-            func()
-        });
+        let thread_result = panic::catch_unwind(|| func());
         if thread_result.is_ok() {
             info!("Thread {} terminated gracefully. Ending...", thread_name);
             return thread_result;
         } else {
-            error!("Thread {} terminated abnormally. Details: {:?}. Restarting...", thread_name, thread_result);
+            error!(
+                "Thread {} terminated abnormally. Details: {:?}. Restarting...",
+                thread_name, thread_result
+            );
             if let Ok(mut counter) = failure_counter.lock() {
                 *counter += 1;
-            }
-            else {
+            } else {
                 error!("Attempted to increment failure count for thread {}, but failed to acquire a lock on the counter.", thread_name);
             }
         }
@@ -196,14 +216,18 @@ where R: std::fmt::Debug {
 }
 
 fn start_thread<T: RemoteIntegration>(mut remote: T, running_flag: Arc<AtomicBool>) {
-    let mut led = RgbLedLight::new(remote.get_red_id(), remote.get_green_id(), remote.get_blue_id());
+    let mut led = RgbLedLight::new(
+        remote.get_red_id(),
+        remote.get_green_id(),
+        remote.get_blue_id(),
+    );
     run_power_on_test(&mut led);
     loop {
         match remote.get_status() {
             RemoteStatus::Unknown => led.glow_led(RgbLedLight::PURPLE),
-            RemoteStatus::InProgress => led.glow_led(RgbLedLight::GREEN),
+            RemoteStatus::InProgress => led.glow_led_period(RgbLedLight::GREEN, 700),
             RemoteStatus::Passing => led.set_led_rgb_values(RgbLedLight::GREEN),
-            RemoteStatus::Failing => led.blink_led(RgbLedLight::RED)
+            RemoteStatus::Failing => led.blink_led(RgbLedLight::RED),
         }
 
         if !running_flag.load(Ordering::SeqCst) {

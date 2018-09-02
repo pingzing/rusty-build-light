@@ -9,5 +9,5 @@ pub struct Config {
 
     pub unity_cloud_api_token: String,
     pub unity_base_url: String,
-    pub unity_led_pins: Vec<u16>,    
+    pub unity_led_pins: Vec<u16>,
 }

@@ -2,9 +2,9 @@ extern crate serde;
 extern crate serde_json;
 
 use failure::Error;
-use HTTP_CLIENT;
 use reqwest::header::{Basic, Headers};
 use reqwest::{StatusCode, Url};
+use HTTP_CLIENT;
 
 pub fn get_basic_credentials(username: &str, password: Option<String>) -> Basic {
     Basic {
@@ -14,7 +14,8 @@ pub fn get_basic_credentials(username: &str, password: Option<String>) -> Basic 
 }
 
 pub fn get_url_response<T>(url_string: &str, headers: Headers) -> Result<(T, Headers), Error>
-    where T: serde::de::DeserializeOwned,
+where
+    T: serde::de::DeserializeOwned,
 {
     if let Ok(url) = Url::parse(&url_string) {
         let mut response = HTTP_CLIENT.get(url).headers(headers).send()?;

@@ -1,9 +1,9 @@
-use remote_status::RemoteStatus;
-use RemoteIntegration;
-use integrations::jenkins_response::*;
 use failure::Error;
-use reqwest::header::{Authorization, Headers};
+use integrations::jenkins_response::*;
 use network::{get_basic_credentials, get_url_response};
+use remote_status::RemoteStatus;
+use reqwest::header::{Authorization, Headers};
+use RemoteIntegration;
 
 pub struct JenkinsIntegration {
     r: u16,
@@ -15,7 +15,14 @@ pub struct JenkinsIntegration {
 }
 
 impl JenkinsIntegration {
-    pub fn new(r: u16, g: u16, b: u16, username: &str, password: &str, base_url: &str) -> JenkinsIntegration {
+    pub fn new(
+        r: u16,
+        g: u16,
+        b: u16,
+        username: &str,
+        password: &str,
+        base_url: &str,
+    ) -> JenkinsIntegration {
         JenkinsIntegration {
             r: r,
             g: g,
@@ -42,8 +49,10 @@ impl JenkinsIntegration {
                 let results = result
                     .jobs
                     .iter()
-                    .filter(|job| job.color != JenkinsJobColor::Disabled
-                                    && job.color != JenkinsJobColor::DisabledAnime)
+                    .filter(|job| {
+                        job.color != JenkinsJobColor::Disabled
+                            && job.color != JenkinsJobColor::DisabledAnime
+                    })
                     .map(|job| {
                         let job_url_string = format!(
                             "{base}/job/{job}/lastBuild/api/json",
@@ -55,12 +64,12 @@ impl JenkinsIntegration {
                             Error,
                         > = get_url_response(&job_url_string, auth_headers.clone());
 
-                        match job_response {                        
+                        match job_response {
                             Ok((job_result, _)) => {
-                                if job_result.building {                                
+                                if job_result.building {
                                     Ok(JenkinsBuildStatus::Building)
                                 } else {
-                                    let unwrapped_result = job_result.build_result.unwrap();                                
+                                    let unwrapped_result = job_result.build_result.unwrap();
                                     Ok(unwrapped_result)
                                 }
                             }
@@ -79,9 +88,15 @@ impl JenkinsIntegration {
 }
 
 impl RemoteIntegration for JenkinsIntegration {
-    fn get_red_id(&self) -> u16 { self.r }
-    fn get_green_id(&self) -> u16 { self.g }
-    fn get_blue_id(&self) -> u16 { self.b }
+    fn get_red_id(&self) -> u16 {
+        self.r
+    }
+    fn get_green_id(&self) -> u16 {
+        self.g
+    }
+    fn get_blue_id(&self) -> u16 {
+        self.b
+    }
 
     fn get_status(&mut self) -> RemoteStatus {
         match self.get_status_internal() {
@@ -93,18 +108,22 @@ impl RemoteIntegration for JenkinsIntegration {
 
                 let retrieved: Vec<JenkinsBuildStatus> =
                     retrieved.into_iter().map(|x| x.unwrap()).collect();
-                
+
                 let retrieved_count = retrieved.len();
                 let not_retrieved_count = not_retrieved.len();
                 let build_failures = *(&retrieved
                     .iter()
-                    .filter(|x| **x == JenkinsBuildStatus::Failure || **x == JenkinsBuildStatus::Unstable)
+                    .filter(|x| {
+                        **x == JenkinsBuildStatus::Failure || **x == JenkinsBuildStatus::Unstable
+                    })
                     .count());
                 let indeterminate_count = *(&retrieved
                     .iter()
-                    .filter(|x| **x != JenkinsBuildStatus::Failure 
-                                && **x != JenkinsBuildStatus::Unstable 
-                                && **x != JenkinsBuildStatus::Success)
+                    .filter(|x| {
+                        **x != JenkinsBuildStatus::Failure
+                            && **x != JenkinsBuildStatus::Unstable
+                            && **x != JenkinsBuildStatus::Success
+                    })
                     .count()) + not_retrieved_count;
                 let build_successes = *(&retrieved
                     .iter()
@@ -112,14 +131,14 @@ impl RemoteIntegration for JenkinsIntegration {
                     .count());
 
                 let builds_in_progress = *(&retrieved
-                .iter()
-                .filter(|x| **x == JenkinsBuildStatus::Building)
-                .count());
+                    .iter()
+                    .filter(|x| **x == JenkinsBuildStatus::Building)
+                    .count());
 
                 let return_status: RemoteStatus;
 
                 // Failure states: NONE of the builds succeeded.
-                if build_successes <= 0 {                    
+                if build_successes <= 0 {
                     return RemoteStatus::Failing;
                 }
                 // Success, or partial success states: at least SOME builds succeeded.
@@ -149,7 +168,7 @@ impl RemoteIntegration for JenkinsIntegration {
                 info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, {} failed, and {} were indeterminate.", retrieved_count, not_retrieved_count, build_successes, build_failures, indeterminate_count);
                 return return_status;
             }
-            Err(e) => {                
+            Err(e) => {
                 warn!(
                     "--Jenkins--: Failed to retrieve any jobs from Jenkins. Details: {}",
                     e
@@ -157,5 +176,5 @@ impl RemoteIntegration for JenkinsIntegration {
                 return RemoteStatus::Unknown;
             }
         }
-    }    
+    }
 }

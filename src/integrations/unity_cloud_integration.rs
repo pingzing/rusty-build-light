@@ -1,19 +1,19 @@
-use std::time::Instant;
-use remote_status::RemoteStatus;
 use errors::UnityRetrievalError;
-use RemoteIntegration;
-use integrations::unity_cloud_response::*;
 use failure::Error;
-use reqwest::header::{Authorization, Headers, ContentType};
+use integrations::unity_cloud_response::*;
 use network::{get_basic_credentials, get_url_response};
+use remote_status::RemoteStatus;
+use reqwest::header::{Authorization, ContentType, Headers};
 use std::time::Duration;
+use std::time::Instant;
+use RemoteIntegration;
 
 const UNITY_SLEEP_DURATION: u64 = 1000 * 60;
 
 pub struct UnityCloudIntegration {
     r: u16,
     g: u16,
-    b: u16,    
+    b: u16,
     api_token: String,
     base_url: String,
     last_tick: Instant,
@@ -43,18 +43,24 @@ impl UnityCloudIntegration {
             "{base}/buildtargets/ios-development/builds?per_page=1",
             base = self.base_url
         );
-        let ios_build_response = UnityCloudIntegration::get_platform_status(&headers, ios_url.as_str());
+        let ios_build_response =
+            UnityCloudIntegration::get_platform_status(&headers, ios_url.as_str());
 
         let android_url = format!(
             "{base}/buildtargets/android-development/builds?per_page=1",
             base = self.base_url
         );
-        let android_build_response = UnityCloudIntegration::get_platform_status(&headers, android_url.as_str());
+        let android_build_response =
+            UnityCloudIntegration::get_platform_status(&headers, android_url.as_str());
         vec![ios_build_response, android_build_response]
     }
 
-    fn get_platform_status(headers: &Headers, url: &str) -> Result<(UnityBuildStatus, Headers), UnityRetrievalError> {
-        let unity_build_response: Result<(Vec<UnityBuild>, Headers), Error> = get_url_response(&url, headers.clone());
+    fn get_platform_status(
+        headers: &Headers,
+        url: &str,
+    ) -> Result<(UnityBuildStatus, Headers), UnityRetrievalError> {
+        let unity_build_response: Result<(Vec<UnityBuild>, Headers), Error> =
+            get_url_response(&url, headers.clone());
         match unity_build_response {
             Ok((mut unity_http_result, response_headers)) => {
                 if unity_http_result.len() != 0 {
@@ -81,11 +87,17 @@ impl UnityCloudIntegration {
 }
 
 impl RemoteIntegration for UnityCloudIntegration {
-    fn get_red_id(&self) -> u16 { self.r }
-    fn get_green_id(&self) -> u16 { self.g }
-    fn get_blue_id(&self) -> u16 { self.b }
+    fn get_red_id(&self) -> u16 {
+        self.r
+    }
+    fn get_green_id(&self) -> u16 {
+        self.g
+    }
+    fn get_blue_id(&self) -> u16 {
+        self.b
+    }
 
-    fn get_status(&mut self) -> RemoteStatus {        
+    fn get_status(&mut self) -> RemoteStatus {
         // Poll this as frequently as the rest, but only actually do any work
         // once every UNITY_SLEEP_DURATION, so we don't hit the API's
         // rate limit. It claims we can inspet the rate limit header we get
@@ -118,19 +130,28 @@ impl RemoteIntegration for UnityCloudIntegration {
             let failing_builds = *(&retrieved_results
                 .iter()
                 .filter(|x| x.0 == UnityBuildStatus::Failure)
-                .count());    
+                .count());
             let in_progress_builds = *(&retrieved_results
                 .iter()
-                .filter(|x| x.0 == UnityBuildStatus::Queued || x.0 == UnityBuildStatus::SentToBuilder
-                    || x.0 == UnityBuildStatus::Started || x.0 == UnityBuildStatus::Restarted)
+                .filter(|x| {
+                    x.0 == UnityBuildStatus::Queued
+                        || x.0 == UnityBuildStatus::SentToBuilder
+                        || x.0 == UnityBuildStatus::Started
+                        || x.0 == UnityBuildStatus::Restarted
+                })
                 .count());
             let other_status_builds = *(&retrieved_results
                 .iter()
-                .filter(|x| x.0 != UnityBuildStatus::Success && x.0 != UnityBuildStatus::Failure
-                    && x.0 != UnityBuildStatus::Queued && x.0 != UnityBuildStatus::SentToBuilder
-                    && x.0 != UnityBuildStatus::Started && x.0 != UnityBuildStatus::Restarted)
+                .filter(|x| {
+                    x.0 != UnityBuildStatus::Success
+                        && x.0 != UnityBuildStatus::Failure
+                        && x.0 != UnityBuildStatus::Queued
+                        && x.0 != UnityBuildStatus::SentToBuilder
+                        && x.0 != UnityBuildStatus::Started
+                        && x.0 != UnityBuildStatus::Restarted
+                })
                 .count());
-            
+
             // More misc statuses than knowns
             if other_status_builds > passing_builds + failing_builds + in_progress_builds {
                 info!("--Unity--: More otherstatuses than passing AND failing.");
@@ -140,7 +161,7 @@ impl RemoteIntegration for UnityCloudIntegration {
             else if failing_builds == 0 && in_progress_builds > 0 {
                 info!("--Unity--: No failures and at least one building");
                 return_status = RemoteStatus::InProgress;
-            }            
+            }
             // All passing or misc
             else if passing_builds > 0 && failing_builds == 0 {
                 info!("--Unity--: All passing or misc.");
@@ -166,7 +187,7 @@ impl RemoteIntegration for UnityCloudIntegration {
                 "--Unity--: {} passing builds, {} failing builds, {} builds in progress, {} builds with misc statuses.",
                 passing_builds, failing_builds, in_progress_builds, other_status_builds
             );
-        }    
+        }
         self.last_tick = Instant::now();
         self.last_status = return_status;
         return return_status;
