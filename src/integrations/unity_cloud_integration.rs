@@ -1,14 +1,14 @@
+use std::time::Instant;
+use remote_status::RemoteStatus;
 use errors::UnityRetrievalError;
 use RemoteIntegration;
-use RgbLedLight;
 use integrations::unity_cloud_response::*;
 use failure::Error;
 use reqwest::header::{Authorization, Headers, ContentType};
 use network::{get_basic_credentials, get_url_response};
-use std::thread;
 use std::time::Duration;
 
-const UNITY_SLEEP_DURATION: u64 = 1000 * 50;
+const UNITY_SLEEP_DURATION: u64 = 1000 * 60;
 
 pub struct UnityCloudIntegration {
     r: u16,
@@ -16,6 +16,8 @@ pub struct UnityCloudIntegration {
     b: u16,    
     api_token: String,
     base_url: String,
+    last_tick: Instant,
+    last_status: RemoteStatus,
 }
 
 impl UnityCloudIntegration {
@@ -26,10 +28,12 @@ impl UnityCloudIntegration {
             b: b,
             api_token: api_token.to_string(),
             base_url: base_url.to_string(),
+            last_tick: Instant::now() - Duration::from_secs(60),
+            last_status: RemoteStatus::Unknown,
         }
     }
 
-    fn get_status(&self) -> Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>> {
+    fn get_status_internal(&self) -> Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>> {
         let mut headers = Headers::new();
         let auth_header = get_basic_credentials(&self.api_token, None);
         headers.set(Authorization(auth_header));
@@ -77,20 +81,20 @@ impl UnityCloudIntegration {
 }
 
 impl RemoteIntegration for UnityCloudIntegration {
-    fn get_red_id(&self) -> u16 {
-        self.r
-    }
+    fn get_red_id(&self) -> u16 { self.r }
+    fn get_green_id(&self) -> u16 { self.g }
+    fn get_blue_id(&self) -> u16 { self.b }
 
-    fn get_green_id(&self) -> u16 {
-        self.g
-    }
+    fn get_status(&mut self) -> RemoteStatus {        
+        // Poll this as frequently as the rest, but only actually do any work
+        // once every UNITY_SLEEP_DURATION, so we don't hit the API's
+        // rate limit. It claims we can inspet the rate limit header we get
+        // back to avoid that, but it doesn't work correctly.
+        if Instant::now() - self.last_tick < Duration::from_secs(UNITY_SLEEP_DURATION) {
+            return self.last_status;
+        }
 
-    fn get_blue_id(&self) -> u16 {
-        self.b
-    }
-
-    fn update_led(&self, led: &mut RgbLedLight) {
-        let unity_results = self.get_status();
+        let unity_results = self.get_status_internal();
         let (retrieved, not_retrieved): (
             Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>>,
             Vec<Result<(UnityBuildStatus, Headers), UnityRetrievalError>>,
@@ -101,9 +105,11 @@ impl RemoteIntegration for UnityCloudIntegration {
         let not_retrieved_results: Vec<UnityRetrievalError> =
             not_retrieved.into_iter().map(|x| x.unwrap_err()).collect();
 
+        let return_status: RemoteStatus;
+
         if not_retrieved_results.len() > 0 {
             info!("--Unity--: At least one result not retrieved.");
-            led.glow_led(RgbLedLight::BLUE);
+            return_status = RemoteStatus::Unknown;
         } else {
             let passing_builds = *(&retrieved_results
                 .iter()
@@ -112,47 +118,57 @@ impl RemoteIntegration for UnityCloudIntegration {
             let failing_builds = *(&retrieved_results
                 .iter()
                 .filter(|x| x.0 == UnityBuildStatus::Failure)
+                .count());    
+            let in_progress_builds = *(&retrieved_results
+                .iter()
+                .filter(|x| x.0 == UnityBuildStatus::Queued || x.0 == UnityBuildStatus::SentToBuilder
+                    || x.0 == UnityBuildStatus::Started || x.0 == UnityBuildStatus::Restarted)
                 .count());
             let other_status_builds = *(&retrieved_results
                 .iter()
-                .filter(|x| x.0 != UnityBuildStatus::Success && x.0 != UnityBuildStatus::Failure)
+                .filter(|x| x.0 != UnityBuildStatus::Success && x.0 != UnityBuildStatus::Failure
+                    && x.0 != UnityBuildStatus::Queued && x.0 != UnityBuildStatus::SentToBuilder
+                    && x.0 != UnityBuildStatus::Started && x.0 != UnityBuildStatus::Restarted)
                 .count());
-
+            
             // More misc statuses than knowns
-            if other_status_builds > passing_builds + failing_builds {
+            if other_status_builds > passing_builds + failing_builds + in_progress_builds {
                 info!("--Unity--: More otherstatuses than passing AND failing.");
-                led.glow_led(RgbLedLight::BLUE);
+                return_status = RemoteStatus::Unknown;
             }
+            // No failures and at least one building
+            else if failing_builds == 0 && in_progress_builds > 0 {
+                info!("--Unity--: No failures and at least one building");
+                return_status = RemoteStatus::InProgress;
+            }            
             // All passing or misc
             else if passing_builds > 0 && failing_builds == 0 {
                 info!("--Unity--: All passing or misc.");
-                led.set_led_rgb_values(RgbLedLight::GREEN);
+                return_status = RemoteStatus::Passing;
             }
             // All failing or misc
             else if passing_builds == 0 && failing_builds > 0 {
                 info!("--Unity--: All failing or misc.");
-                led.blink_led(RgbLedLight::RED);
+                return_status = RemoteStatus::Failing;
             }
             // Both failing and passing
             else if passing_builds > 0 && failing_builds > 0 {
                 info!("--Unity--: At least one failing AND passing.");
-                led.glow_led(RgbLedLight::TEAL);
+                return_status = RemoteStatus::Failing;
             }
             // ?????
             else {
                 info!("--Unity--: Unknown state.");
-                led.glow_led(RgbLedLight::PURPLE);
+                return_status = RemoteStatus::Unknown;
             }
 
             info!(
-                "--Unity--: {} passing builds, {} failing builds, {} builds with misc statuses.",
-                passing_builds, failing_builds, other_status_builds
+                "--Unity--: {} passing builds, {} failing builds, {} builds in progress, {} builds with misc statuses.",
+                passing_builds, failing_builds, in_progress_builds, other_status_builds
             );
-        }
-        
-        // Extra-long sleep, to comply with Unity's rate-limiting.
-        // The docs claim that they respond with a header that dynamically
-        // tells us our limit, but that's a lie.
-        thread::sleep(Duration::from_millis(UNITY_SLEEP_DURATION));
+        }    
+        self.last_tick = Instant::now();
+        self.last_status = return_status;
+        return return_status;
     }
 }

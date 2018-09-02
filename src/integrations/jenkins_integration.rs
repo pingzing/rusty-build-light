@@ -1,5 +1,5 @@
+use remote_status::RemoteStatus;
 use RemoteIntegration;
-use RgbLedLight;
 use integrations::jenkins_response::*;
 use failure::Error;
 use reqwest::header::{Authorization, Headers};
@@ -26,7 +26,7 @@ impl JenkinsIntegration {
         }
     }
 
-    fn get_status(&self) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {
+    fn get_status_internal(&self) -> Result<Vec<Result<JenkinsBuildStatus, Error>>, Error> {
         let url_string = format!("{base}/api/json", base = self.base_url);
         let mut auth_headers = Headers::new();
         auth_headers.set(Authorization(get_basic_credentials(
@@ -79,20 +79,12 @@ impl JenkinsIntegration {
 }
 
 impl RemoteIntegration for JenkinsIntegration {
-    fn get_red_id(&self) -> u16 {
-        self.r
-    }
+    fn get_red_id(&self) -> u16 { self.r }
+    fn get_green_id(&self) -> u16 { self.g }
+    fn get_blue_id(&self) -> u16 { self.b }
 
-    fn get_green_id(&self) -> u16 {
-        self.g
-    }
-
-    fn get_blue_id(&self) -> u16 {
-        self.b
-    }
-
-    fn update_led(&self, led: &mut RgbLedLight) {
-        match self.get_status() {
+    fn get_status(&mut self) -> RemoteStatus {
+        match self.get_status_internal() {
             Ok(results) => {
                 let (retrieved, not_retrieved): (
                     Vec<Result<JenkinsBuildStatus, Error>>,
@@ -119,43 +111,50 @@ impl RemoteIntegration for JenkinsIntegration {
                     .filter(|x| **x == JenkinsBuildStatus::Success)
                     .count());
 
+                let builds_in_progress = *(&retrieved
+                .iter()
+                .filter(|x| **x == JenkinsBuildStatus::Building)
+                .count());
+
+                let return_status: RemoteStatus;
+
                 // Failure states: NONE of the builds succeeded.
-                if build_successes <= 0 {
-                    if indeterminate_count > build_failures || build_failures == 0 {
-                        // Glow blue if the majority of statuses are indeterminate, or if we have no success AND no failures
-                        led.glow_led(RgbLedLight::BLUE);
-                    } else {
-                        led.blink_led(RgbLedLight::RED);
-                    }
+                if build_successes <= 0 {                    
+                    return RemoteStatus::Failing;
                 }
                 // Success, or partial success states: at least SOME builds succeeded.
                 else {
                     if build_failures == 0 {
+                        // If no failures, immediately report any builds-in-progress
+                        if builds_in_progress > 0 {
+                            return RemoteStatus::InProgress;
+                        }
                         // No failures, and more successes than indeterminates
                         if build_successes > indeterminate_count {
-                            led.set_led_rgb_values(RgbLedLight::GREEN);
+                            return RemoteStatus::Passing;
                         }
-                        // No failures, but more indeterminates that successes.
+                        // No failures, but more indeterminates than successes.
                         else {
-                            led.glow_led(RgbLedLight::TEAL);
+                            return RemoteStatus::Failing;
                         }
                     // Some failures, but more successes than failures
                     } else if build_successes > build_failures {
-                        led.glow_led(RgbLedLight::YELLOW);
+                        return_status = RemoteStatus::Failing;
                     // Many failures, more than successes.
                     } else {
-                        led.blink_led(RgbLedLight::RED);
+                        return_status = RemoteStatus::Failing;
                     }
                 }
 
                 info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, {} failed, and {} were indeterminate.", retrieved_count, not_retrieved_count, build_successes, build_failures, indeterminate_count);
+                return return_status;
             }
-            Err(e) => {
-                led.glow_led(RgbLedLight::BLUE);
+            Err(e) => {                
                 warn!(
                     "--Jenkins--: Failed to retrieve any jobs from Jenkins. Details: {}",
                     e
                 );
+                return RemoteStatus::Unknown;
             }
         }
     }    

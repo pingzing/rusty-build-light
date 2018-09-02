@@ -7,6 +7,9 @@ use integrations::remote_integration::{RemoteIntegration};
 use integrations::jenkins_integration::{JenkinsIntegration};
 use integrations::unity_cloud_integration::{UnityCloudIntegration};
 
+mod remote_status;
+use remote_status::RemoteStatus;
+
 mod config_file;
 use config_file::*;
 
@@ -66,7 +69,7 @@ fn main() {
     match std::env::current_exe() {
         Ok(path) => {
             // Init logging
-            let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());
+            let mut log_config_file_path = std::path::PathBuf::from(path.parent().unwrap());                
             log_config_file_path.push("log4rs.yml");
             println!("Looking for log config file at: {:?}", log_config_file_path);
             log4rs::init_file(log_config_file_path, Default::default()).unwrap();
@@ -192,11 +195,16 @@ where R: std::fmt::Debug {
     }
 }
 
-fn start_thread<T: RemoteIntegration>(remote: T, running_flag: Arc<AtomicBool>) {
+fn start_thread<T: RemoteIntegration>(mut remote: T, running_flag: Arc<AtomicBool>) {
     let mut led = RgbLedLight::new(remote.get_red_id(), remote.get_green_id(), remote.get_blue_id());
     run_power_on_test(&mut led);
     loop {
-        remote.update_led(&mut led);        
+        match remote.get_status() {
+            RemoteStatus::Unknown => led.glow_led(RgbLedLight::PURPLE),
+            RemoteStatus::InProgress => led.glow_led(RgbLedLight::GREEN),
+            RemoteStatus::Passing => led.set_led_rgb_values(RgbLedLight::GREEN),
+            RemoteStatus::Failing => led.blink_led(RgbLedLight::RED)
+        }
 
         if !running_flag.load(Ordering::SeqCst) {
             led.glow_led(RgbLedLight::WHITE);
