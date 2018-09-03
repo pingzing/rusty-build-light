@@ -7,7 +7,7 @@ pub struct JenkinsJobResponse {
 pub struct JenkinsJob {
     pub name: String,
     pub url: String,
-    pub color: JenkinsJobColor
+    pub color: JenkinsJobColor,
 }
 
 #[derive(Deserialize)]
@@ -44,5 +44,5 @@ pub enum JenkinsJobColor {
     DisabledAnime,
     Aborted,
     Notbuilt,
-    NobtuiltAnime
+    NobtuiltAnime,
 }
