@@ -1,7 +1,7 @@
 use std::env;
 use std::ffi::OsString;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::fs;
 
 // Copy the config file and log config file from /config to the output directory, next to our resulting executable
 pub fn main() {
