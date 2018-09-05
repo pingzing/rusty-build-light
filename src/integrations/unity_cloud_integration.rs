@@ -28,7 +28,7 @@ impl UnityCloudIntegration {
             b: b,
             api_token: api_token.to_string(),
             base_url: base_url.to_string(),
-            last_tick: Instant::now() - Duration::from_secs(60),
+            last_tick: Instant::now() - Duration::from_millis(UNITY_SLEEP_DURATION),
             last_status: RemoteStatus::Unknown,
         }
     }
@@ -40,14 +40,14 @@ impl UnityCloudIntegration {
         headers.set(ContentType::json());
 
         let ios_url = format!(
-            "{base}/buildtargets/ios-development/builds?per_page=1",
+            "{base}/ios-development/builds?per_page=1",
             base = self.base_url
         );
         let ios_build_response =
             UnityCloudIntegration::get_platform_status(&headers, ios_url.as_str());
 
         let android_url = format!(
-            "{base}/buildtargets/android-development/builds?per_page=1",
+            "{base}/android-development/builds?per_page=1",
             base = self.base_url
         );
         let android_build_response =
@@ -102,7 +102,9 @@ impl RemoteIntegration for UnityCloudIntegration {
         // once every UNITY_SLEEP_DURATION, so we don't hit the API's
         // rate limit. It claims we can inspet the rate limit header we get
         // back to avoid that, but it doesn't work correctly.
-        if Instant::now() - self.last_tick < Duration::from_secs(UNITY_SLEEP_DURATION) {
+        if Instant::now() - self.last_tick < Duration::from_millis(UNITY_SLEEP_DURATION) {
+            let till_next = Duration::from_millis(UNITY_SLEEP_DURATION) - (Instant::now() - self.last_tick);
+            info!("--Unity-- Sleeping for another {} seconds.", till_next.as_secs());
             return self.last_status;
         }
 
