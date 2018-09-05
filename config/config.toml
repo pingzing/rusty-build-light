@@ -1,3 +1,5 @@
+allowed_failures = 0
+
 # --- JENKINS ---
 
 jenkins_username = ""
