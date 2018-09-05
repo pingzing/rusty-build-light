@@ -1,7 +1,7 @@
-use std::time::Duration;
-use std::thread;
-use std::sync::{mpsc, Arc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use wiringpi;
 use wiringpi::*;
 
@@ -85,12 +85,19 @@ impl RgbLedLight {
             led_clone.turn_led_off_internal();
             thread::sleep(Duration::from_millis(750));
         });
-    }
+    }        
 
     pub fn glow_led(&mut self, rgb: (i32, i32, i32)) {
+        self.glow_led_period(rgb, 1400);
+    }
+
+    pub fn glow_led_period(&mut self, rgb: (i32, i32, i32), period: u64) {
         if self.is_blinking() {
             self.stop_blinking();
         }
+
+        let period = if period >= 200 { period } else { 200 };
+        let sleep_per_tick = period / 200;
 
         let mut led_clone = RgbLedLight {
             red_pin: PI.soft_pwm_pin(self.red_pin.number() as u16),
@@ -117,7 +124,7 @@ impl RgbLedLight {
                 let partial_green = ((i as f32 / 100f32) * g as f32) as i32;
                 let partial_blue = ((i as f32 / 100f32) * b as f32) as i32;
                 led_clone.set_led_rgb_values_internal(partial_red, partial_green, partial_blue);
-                thread::sleep(Duration::from_millis(7));
+                thread::sleep(Duration::from_millis(sleep_per_tick));
             }
 
             for i in (0..101).rev() {
@@ -129,10 +136,10 @@ impl RgbLedLight {
                 let partial_green = ((i as f32 / 100f32) * g as f32) as i32;
                 let partial_blue = ((i as f32 / 100f32) * b as f32) as i32;
                 led_clone.set_led_rgb_values_internal(partial_red, partial_green, partial_blue);
-                thread::sleep(Duration::from_millis(7));
+                thread::sleep(Duration::from_millis(sleep_per_tick));
             }
-        });
-    }
+        });        
+    }    
 
     fn turn_led_on_internal(&mut self) {
         self.red_pin.pwm_write(100);
