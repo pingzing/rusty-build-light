@@ -108,8 +108,7 @@ impl RemoteIntegration for JenkinsIntegration {
 
                 let retrieved: Vec<JenkinsBuildStatus> =
                     retrieved.into_iter().map(|x| x.unwrap()).collect();
-
-                let retrieved_count = retrieved.len();
+                
                 let not_retrieved_count = not_retrieved.len();
                 let build_failures = *(&retrieved
                     .iter()
@@ -135,38 +134,27 @@ impl RemoteIntegration for JenkinsIntegration {
                     .filter(|x| **x == JenkinsBuildStatus::Building)
                     .count());
 
-                let return_status: RemoteStatus;
+                info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, {} failed, and {} were indeterminate.", retrieved.len(), not_retrieved_count, build_successes, build_failures, indeterminate_count);                
 
-                // Failure states: NONE of the builds succeeded.
-                if build_successes <= 0 {
+                // No successes, or at least one failure
+                if build_successes == 0 || build_failures > 0 {
+                    return RemoteStatus::Failing;
+                }                
+                // If no failures, immediately report any builds-in-progress
+                if  build_failures == 0 && builds_in_progress > 0 {
+                    return RemoteStatus::InProgress;
+                }
+                // No failures, and more successes than indeterminates
+                if build_failures == 0 && build_successes > indeterminate_count {
+                    return RemoteStatus::Passing;
+                }
+                // No failures, but more indeterminates than successes.
+                if build_failures == 0 && indeterminate_count > build_successes {
                     return RemoteStatus::Failing;
                 }
-                // Success, or partial success states: at least SOME builds succeeded.
-                else {
-                    if build_failures == 0 {
-                        // If no failures, immediately report any builds-in-progress
-                        if builds_in_progress > 0 {
-                            return RemoteStatus::InProgress;
-                        }
-                        // No failures, and more successes than indeterminates
-                        if build_successes > indeterminate_count {
-                            return RemoteStatus::Passing;
-                        }
-                        // No failures, but more indeterminates than successes.
-                        else {
-                            return RemoteStatus::Failing;
-                        }
-                    // Some failures, but more successes than failures
-                    } else if build_successes > build_failures {
-                        return_status = RemoteStatus::Failing;
-                    // Many failures, more than successes.
-                    } else {
-                        return_status = RemoteStatus::Failing;
-                    }
-                }
 
-                info!("--Jenkins--: Retrieved {} jobs, failed to retrieve {} jobs. Of those, {} succeeded, {} failed, and {} were indeterminate.", retrieved_count, not_retrieved_count, build_successes, build_failures, indeterminate_count);
-                return return_status;
+                // None of our other conditions apply
+                return RemoteStatus::Unknown;
             }
             Err(e) => {
                 warn!(
