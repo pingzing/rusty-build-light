@@ -43,6 +43,7 @@ pub enum JenkinsJobColor {
     Disabled,
     DisabledAnime,
     Aborted,
+    AbortedAnime,
     Notbuilt,
-    NotbuiltAnime,
+    NotbuiltAnime,    
 }
